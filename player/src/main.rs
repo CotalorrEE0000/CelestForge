@@ -135,8 +135,6 @@ impl App {
             size_in_pixels: [config.width, config.height],
             pixels_per_point: window.scale_factor() as f32,
         };
-        let egui_state = self.egui_state.as_mut().unwrap();
-        // let egui_render = self.egui_render.as_mut().unwrap();
         egui_render.update_buffers(
             device,
             queue,
@@ -145,7 +143,7 @@ impl App {
             &screen_descriptor,
         );
         {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -169,16 +167,17 @@ impl App {
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        if new_size.width > 0 && 0 < new_size.height {
-            if let (Some(surface), Some(config), Some(device)) = (
+        if new_size.width > 0
+            && 0 < new_size.height
+            && let (Some(surface), Some(config), Some(device)) = (
                 self.surface.as_ref(),
                 self.config.as_mut(),
                 self.device.as_ref(),
-            ) {
-                config.width = new_size.width;
-                config.height = new_size.height;
-                surface.configure(device, config);
-            }
+            )
+        {
+            config.width = new_size.width;
+            config.height = new_size.height;
+            surface.configure(device, config);
         }
     }
 }
@@ -201,11 +200,11 @@ impl ApplicationHandler for App {
     fn window_event(
         &mut self,
         event_loop: &event_loop::ActiveEventLoop,
-        window_id: winit::window::WindowId,
+        _window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
         if let (Some(window), Some(egui_state)) = (self.window.as_ref(), self.egui_state.as_mut()) {
-            egui_state.on_window_event(window, &event);
+            let _ = egui_state.on_window_event(window, &event);
         }
         match event {
             WindowEvent::CloseRequested => {
@@ -223,7 +222,7 @@ impl ApplicationHandler for App {
             _ => {}
         }
     }
-    fn about_to_wait(&mut self, event_loop: &event_loop::ActiveEventLoop) {
+    fn about_to_wait(&mut self, _event_loop: &event_loop::ActiveEventLoop) {
         if let Some(w) = &self.window {
             w.request_redraw();
         }
