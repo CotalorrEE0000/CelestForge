@@ -264,6 +264,7 @@ dependencies = [
 name = "celest_player"
 version = "0.1.0"
 dependencies = [
+ "celest_core",
  "egui",
  "egui-wgpu",
  "egui-winit",
