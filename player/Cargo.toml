@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 celest_core = { path = "../core"}
+celest_renderer = { path = "../renderer"}
 winit = "0.30"
 wgpu = "22.0"
 egui = "0.29"

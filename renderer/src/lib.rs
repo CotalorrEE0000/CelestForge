@@ -1,9 +1,15 @@
-use std::sync::Arc;
+pub mod texture_cache;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+use texture_cache::TextureCache;
 
 use wgpu::{
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendState, ColorTargetState,
     ColorWrites, Instance, MultisampleState, PipelineCompilationOptions, PipelineLayoutDescriptor,
-    SamplerDescriptor, ShaderModuleDescriptor, ShaderStages,
+    SamplerDescriptor, ShaderModuleDescriptor, ShaderStages, TextureDescriptor,
+    TextureViewDescriptor, util::DeviceExt,
 };
 
 use winit::window::Window;
@@ -36,6 +42,37 @@ impl Vertex {
     }
 }
 
+const FULL_QUAD: [Vertex; 6] = [
+    Vertex {
+        position: [-1.0, -1.0],
+        tex_coord: [0.0, 1.0],
+    },
+    Vertex {
+        position: [1.0, -1.0],
+        tex_coord: [1.0, 1.0],
+    },
+    Vertex {
+        position: [1.0, 1.0],
+        tex_coord: [1.0, 0.0],
+    },
+    Vertex {
+        position: [-1.0, -1.0],
+        tex_coord: [0.0, 1.0],
+    },
+    Vertex {
+        position: [1.0, 1.0],
+        tex_coord: [1.0, 0.0],
+    },
+    Vertex {
+        position: [-1.0, 1.0],
+        tex_coord: [0.0, 0.0],
+    },
+];
+
+enum DrawCommand {
+    Background { asset_id: String },
+}
+
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -45,6 +82,12 @@ pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    texture_cache: TextureCache,
+
+    vertex_buffer: wgpu::Buffer,
+    draw_queue: Vec<DrawCommand>,
+    clear_color: wgpu::Color,
+    asset_root: PathBuf,
 }
 
 impl Renderer {
@@ -157,6 +200,20 @@ impl Renderer {
             ..Default::default()
         });
 
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("bg_quad_vbo"),
+            contents: bytemuck::cast_slice(&FULL_QUAD),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let clear_color = wgpu::Color {
+            r: 0.05,
+            g: 0.05,
+            b: 0.08,
+            a: 1.0,
+        };
+        let asset_root = PathBuf::from("assets");
+
         Self {
             device,
             queue,
@@ -165,6 +222,158 @@ impl Renderer {
             pipeline,
             bind_group_layout,
             sampler,
+            texture_cache: TextureCache::new(),
+            asset_root,
+            vertex_buffer,
+            draw_queue: Vec::new(),
+            clear_color,
         }
     }
+
+    pub fn clear(&mut self, color: [f32; 4]) {
+        self.clear_color = wgpu::Color {
+            r: color[0] as f64,
+            g: color[1] as f64,
+            b: color[2] as f64,
+            a: color[3] as f64,
+        };
+    }
+
+    pub fn draw_bg(&mut self, asset_id: &str) {
+        if let Err(e) =
+            self.texture_cache
+                .get_or_load(&self.device, &self.queue, asset_id, &self.asset_root)
+        {
+            eprintln!("draw_bg: load {asset_id} faild: {e}");
+            return;
+        }
+
+        self.draw_queue
+            .retain(|c| !matches!(c, DrawCommand::Background { .. }));
+        self.draw_queue.push(DrawCommand::Background {
+            asset_id: asset_id.to_owned(),
+        });
+    }
+
+    pub fn clear_bg(&mut self) {
+        self.draw_queue
+            .retain(|c| !matches!(c, DrawCommand::Background { .. }));
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if width > 0 && height > 0 {
+            self.surface_config.width = width;
+            self.surface_config.height = height;
+            self.surface.configure(&self.device, &self.surface_config);
+        }
+    }
+
+    pub fn render_frame(&mut self) -> Result<(), wgpu::SurfaceError> {
+        let frame = self.surface.get_current_texture()?;
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("celest_frame"),
+            });
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("celest_bg_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(self.clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            pass.set_pipeline(&self.pipeline);
+            pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+
+            for cmd in &self.draw_queue {
+                if let DrawCommand::Background { asset_id } = cmd {
+                    let Some(tex_view) = self.texture_cache.get(asset_id) else {
+                        continue;
+                    };
+
+                    let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("texture_bind_group"),
+                        layout: &self.bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::TextureView(tex_view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::Sampler(&self.sampler),
+                            },
+                        ],
+                    });
+                    pass.set_bind_group(0, &bind_group, &[]);
+                    pass.draw(0..6, 0..1);
+                }
+            }
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+        frame.present();
+        Ok(())
+    }
+}
+
+fn load_texture_from_file(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    path: &Path,
+) -> Result<(wgpu::Texture, wgpu::TextureView, u32, u32), String> {
+    let img = image::open(path)
+        .map_err(|e| format!("Image load faild {path:?}: {e}"))?
+        .to_rgba8();
+    let (width, height) = img.dimensions();
+
+    let texture = device.create_texture(&TextureDescriptor {
+        label: Some(&format!("texture: {path:?}")),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::ImageCopyTexture {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &img,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * width),
+            rows_per_image: Some(height),
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+
+    let view = texture.create_view(&TextureViewDescriptor::default());
+    Ok((texture, view, width, height))
 }

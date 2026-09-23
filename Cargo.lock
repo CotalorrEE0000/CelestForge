@@ -397,6 +397,7 @@ name = "celest_player"
 version = "0.1.0"
 dependencies = [
  "celest_core",
+ "celest_renderer",
  "egui",
  "egui-wgpu",
  "egui-winit",
