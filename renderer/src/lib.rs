@@ -74,10 +74,10 @@ enum DrawCommand {
 }
 
 pub struct Renderer {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    device: std::sync::Arc<wgpu::Device>,
+    queue: std::sync::Arc<wgpu::Queue>,
     surface: wgpu::Surface<'static>,
-    surface_config: wgpu::SurfaceConfiguration,
+    pub surface_config: wgpu::SurfaceConfiguration,
 
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -91,45 +91,15 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(window: Arc<Window>) -> Self {
-        let instance = Instance::default();
-        let surface = instance.create_surface(window.clone()).unwrap();
-
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::default(),
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        }))
-        .unwrap();
-
-        let info = adapter.get_info();
-        println!("SELECTED GPU: {} | BACKEND: {:?}", info.name, info.backend);
-
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("celest device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::default(),
-            },
-            None,
-        ))
-        .unwrap();
-
-        let size = window.inner_size();
-        let caps = surface.get_capabilities(&adapter);
-        let format = caps.formats[0];
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: format,
-            width: size.width.max(1),
-            height: size.height.max(1),
-            present_mode: wgpu::PresentMode::AutoVsync,
-            alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
-        surface.configure(&device, &config);
+    pub fn new(
+        window: Arc<Window>,
+        device: std::sync::Arc<wgpu::Device>,
+        queue: std::sync::Arc<wgpu::Queue>,
+        surface: wgpu::Surface<'static>,
+        surface_config: wgpu::SurfaceConfiguration,
+    ) -> Self {
+        let format = surface_config.format;
+        surface.configure(&*device, &surface_config);
 
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("texture_shader"),
@@ -218,7 +188,7 @@ impl Renderer {
             device,
             queue,
             surface,
-            surface_config: config,
+            surface_config: surface_config,
             pipeline,
             bind_group_layout,
             sampler,
@@ -268,7 +238,57 @@ impl Renderer {
         }
     }
 
+    /// 不画 egui，仅画背景（render_text 临时 bin 用）
     pub fn render_frame(&mut self) -> Result<(), wgpu::SurfaceError> {
+        let frame = self.surface.get_current_texture()?;
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("celest_bg"),
+        });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("celest_bg_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(self.clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            for cmd in &self.draw_queue {
+                let DrawCommand::Background { asset_id } = cmd;
+                let Some(tex_view) = self.texture_cache.get(asset_id) else { continue; };
+                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("texture_bind_group"),
+                    layout: &self.bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(tex_view) },
+                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                    ],
+                });
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.draw(0..6, 0..1);
+            }
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+        frame.present();
+        Ok(())
+    }
+
+    pub fn render_frame_with_egui<E>(
+        &mut self,
+        egui_draw: E,
+    ) -> Result<(), wgpu::SurfaceError>
+    where
+        E: FnOnce(&mut wgpu::CommandEncoder, &wgpu::TextureView),
+    {
         let frame = self.surface.get_current_texture()?;
         let view = frame
             .texture
@@ -279,6 +299,7 @@ impl Renderer {
                 label: Some("celest_frame"),
             });
 
+        // pass 1: background
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("celest_bg_pass"),
@@ -299,34 +320,52 @@ impl Renderer {
             pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
             for cmd in &self.draw_queue {
-                if let DrawCommand::Background { asset_id } = cmd {
-                    let Some(tex_view) = self.texture_cache.get(asset_id) else {
-                        continue;
-                    };
+                let DrawCommand::Background { asset_id } = cmd;
+                let Some(tex_view) = self.texture_cache.get(asset_id) else {
+                    continue;
+                };
 
-                    let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("texture_bind_group"),
-                        layout: &self.bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: wgpu::BindingResource::TextureView(tex_view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::Sampler(&self.sampler),
-                            },
-                        ],
-                    });
-                    pass.set_bind_group(0, &bind_group, &[]);
-                    pass.draw(0..6, 0..1);
-                }
+                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("texture_bind_group"),
+                    layout: &self.bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(tex_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        },
+                    ],
+                });
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.draw(0..6, 0..1);
             }
         }
+
+        // pass 2: egui (same encoder, same view)
+        egui_draw(&mut encoder, &view);
 
         self.queue.submit(std::iter::once(encoder.finish()));
         frame.present();
         Ok(())
+    }
+
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    pub fn device_clone(&self) -> std::sync::Arc<wgpu::Device> {
+        std::sync::Arc::clone(&self.device)
+    }
+
+    pub fn queue_clone(&self) -> std::sync::Arc<wgpu::Queue> {
+        std::sync::Arc::clone(&self.queue)
     }
 }
 
@@ -377,3 +416,4 @@ fn load_texture_from_file(
     let view = texture.create_view(&TextureViewDescriptor::default());
     Ok((texture, view, width, height))
 }
+

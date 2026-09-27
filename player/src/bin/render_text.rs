@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use celest_renderer::Renderer;
+use wgpu::Instance;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -19,7 +20,47 @@ impl ApplicationHandler for RenderTest {
         let attr = Window::default_attributes().with_title("Celest Render Test");
         let window = Arc::new(event_loop.create_window(attr).unwrap());
 
-        let mut renderer = Renderer::new(window.clone());
+        let instance = Instance::default();
+        let surface = instance.create_surface(window.clone()).unwrap();
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::default(),
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
+        }))
+        .unwrap();
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("render_test device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: wgpu::MemoryHints::default(),
+            },
+            None,
+        ))
+        .unwrap();
+
+        let size = window.inner_size();
+        let caps = surface.get_capabilities(&adapter);
+        let format = caps.formats[0];
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size.width.max(1),
+            height: size.height.max(1),
+            present_mode: wgpu::PresentMode::AutoVsync,
+            alpha_mode: caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&device, &config);
+
+        let mut renderer = Renderer::new(
+            window.clone(),
+            Arc::new(device),
+            Arc::new(queue),
+            surface,
+            config,
+        );
         renderer.draw_bg("bg/bg_room.png");
         renderer.clear([0.05, 0.05, 0.08, 1.0]);
 
@@ -48,7 +89,7 @@ impl ApplicationHandler for RenderTest {
                 if let Some(r) = self.renderer.as_mut() {
                     if let Err(e) = r.render_frame() {
                         eprintln!("RENDER ERROR: {e}");
-                    }
+                    };
                 }
             }
             _ => {}
