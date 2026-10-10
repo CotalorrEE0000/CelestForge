@@ -96,20 +96,20 @@ impl App {
             None,
         );
 
-        // 加载中文字体（微软雅黑）
         let font_path = "assets/font.ttf";
         let font_data = std::fs::read(font_path)
-            .expect("无法读取 assets/font.ttf，请确认文件存在");
+            .expect("Can't load assets/font.ttf，please confirm file is exist");
         let mut fonts = egui::FontDefinitions::default();
-        fonts.font_data.insert(
-            "my_font".to_owned(),
-            egui::FontData::from_owned(font_data),
-        );
-        fonts.families
+        fonts
+            .font_data
+            .insert("my_font".to_owned(), egui::FontData::from_owned(font_data));
+        fonts
+            .families
             .entry(egui::FontFamily::Proportional)
             .or_default()
             .insert(0, "my_font".to_owned());
-        fonts.families
+        fonts
+            .families
             .entry(egui::FontFamily::Monospace)
             .or_default()
             .insert(0, "my_font".to_owned());
@@ -340,20 +340,26 @@ impl App {
                 Command::ShowSprite {
                     who,
                     asset_id,
-                    position: _,
+                    position,
                 } => {
                     // self.active_sprites.insert(who.clone(), asset_id.clone());
-                    eprintln!("[SPRITE] {}: {} (Phase 13)", who, asset_id);
+                    eprintln!("[SPRITE] {}: {}", who, asset_id);
+                    self.renderer
+                        .as_mut()
+                        .unwrap()
+                        .draw_sprite(asset_id, *position);
                     vm.resume();
                 }
                 Command::HideSprite { who } => {
                     // self.active_sprites.remove(who);
                     eprintln!("[SPRITE] hide {}", who);
+                    self.renderer.as_mut().unwrap().hide_sprite(who);
                     vm.resume();
                 }
                 Command::ClearSprites => {
                     // self.active_sprites.clear();
                     eprintln!("[SPRITE] clear all");
+                    self.renderer.as_mut().unwrap().clear_sprite();
                     vm.resume();
                 }
                 Command::Text { speaker, content } => {
@@ -365,15 +371,15 @@ impl App {
                     vm.resume();
                 }
                 Command::PlayVoice { who, asset_id } => {
-                    eprintln!("[VOICE] {}: {} (Phase 3)", who, asset_id);
+                    eprintln!("[VOICE] {}: {}", who, asset_id);
                     vm.resume();
                 }
                 Command::PlaySe { asset_id } => {
-                    eprintln!("[SE] {} (Phase 3)", asset_id);
+                    eprintln!("[SE] {}", asset_id);
                     vm.resume();
                 }
                 Command::PlayBgm { asset_id } => {
-                    eprintln!("[BGM] {} (Phase 3)", asset_id);
+                    eprintln!("[BGM] {}", asset_id);
                     vm.resume();
                 }
                 Command::Log(text) => {
@@ -410,13 +416,7 @@ impl ApplicationHandler for App {
         self.init_egui(&device, &queue);
         let surface = self.surface.take().unwrap();
         let config = self.config.take().unwrap();
-        self.renderer = Some(Renderer::new(
-            window.clone(),
-            device,
-            queue,
-            surface,
-            config,
-        ));
+        self.renderer = Some(Renderer::new(device, queue, surface, config));
         let script = Arc::new(
             Loader::from_file("scripts/test_chapter1.json")
                 .expect("Load scripts/test_chapter1.json Faild!"),

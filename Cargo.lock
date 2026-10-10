@@ -411,6 +411,7 @@ name = "celest_renderer"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "celest_core",
  "image",
  "pollster",
  "wgpu",

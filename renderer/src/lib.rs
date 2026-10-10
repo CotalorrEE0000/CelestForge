@@ -1,18 +1,14 @@
 pub mod texture_cache;
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use celest_core::command::{self, Position};
+use std::path::{Path, PathBuf};
 use texture_cache::TextureCache;
 
 use wgpu::{
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendState, ColorTargetState,
-    ColorWrites, Instance, MultisampleState, PipelineCompilationOptions, PipelineLayoutDescriptor,
+    ColorWrites, MultisampleState, PipelineCompilationOptions, PipelineLayoutDescriptor,
     SamplerDescriptor, ShaderModuleDescriptor, ShaderStages, TextureDescriptor,
     TextureViewDescriptor, util::DeviceExt,
 };
-
-use winit::window::Window;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -70,7 +66,13 @@ const FULL_QUAD: [Vertex; 6] = [
 ];
 
 enum DrawCommand {
-    Background { asset_id: String },
+    Background {
+        asset_id: String,
+    },
+    Sprite {
+        asset_id: String,
+        position: Position,
+    },
 }
 
 pub struct Renderer {
@@ -92,7 +94,6 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(
-        window: Arc<Window>,
         device: std::sync::Arc<wgpu::Device>,
         queue: std::sync::Arc<wgpu::Queue>,
         surface: wgpu::Surface<'static>,
@@ -230,6 +231,67 @@ impl Renderer {
             .retain(|c| !matches!(c, DrawCommand::Background { .. }));
     }
 
+    pub fn draw_sprite(&mut self, asset_id: &str, position: command::Position) {
+        if let Err(e) =
+            self.texture_cache
+                .get_or_load(&self.device, &self.queue, asset_id, &self.asset_root)
+        {
+            eprintln!("draw_sprite: load {asset_id} failed: {e}");
+            return;
+        }
+
+        self.draw_queue
+            .retain(|c| !matches!(c, DrawCommand::Sprite { asset_id: a, .. } if a == asset_id));
+        self.draw_queue.push(DrawCommand::Sprite {
+            asset_id: asset_id.to_owned(),
+            position,
+        });
+    }
+
+    pub fn hide_sprite(&mut self, asset_id: &str) {
+        self.draw_queue
+            .retain(|c| !matches!(c, DrawCommand::Sprite { asset_id: a, .. } if a == asset_id));
+    }
+
+    pub fn clear_sprite(&mut self) {
+        self.draw_queue
+            .retain(|c| !matches!(c, DrawCommand::Sprite { .. }));
+    }
+
+    pub fn position_to_ndc(
+        &self,
+        position: command::Position,
+        img_w: u32,
+        img_h: u32,
+    ) -> (f32, f32, f32, f32) {
+        let w = self.surface_config.width as f32;
+        let h = self.surface_config.height as f32;
+
+        let max_w_px = w * 0.5;
+        let max_h_px = h * 0.6;
+        let scale = (max_w_px / img_w as f32).min(max_h_px / img_h as f32);
+
+        let target_h = img_h as f32 * scale;
+        let target_w = img_w as f32 * scale;
+        let (cx, cy) = match position {
+            command::Position::Left => (w * 0.25, h * 0.7),
+            command::Position::Center => (w * 0.5, h * 0.7),
+            command::Position::Right => (w * 0.75, h * 0.7),
+            command::Position::Absolute(px, py) => (px, py),
+        };
+
+        let cx_ndc = cx / w * 2.0 - 1.0;
+        let cy_ndc = 1.0 - cy / h * 2.0;
+
+        let hw = target_w / w;
+        let hh = target_h / h;
+
+        let x = cx_ndc - hw;
+        let y = cy_ndc + hh;
+
+        (x, y, hw * 2.0, hh * 2.0)
+    }
+
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
             self.surface_config.width = width;
@@ -238,13 +300,17 @@ impl Renderer {
         }
     }
 
-    /// 不画 egui，仅画背景（render_text 临时 bin 用）
     pub fn render_frame(&mut self) -> Result<(), wgpu::SurfaceError> {
         let frame = self.surface.get_current_texture()?;
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("celest_bg"),
-        });
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("celest_bg"),
+            });
+
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("celest_bg_pass"),
@@ -263,29 +329,102 @@ impl Renderer {
             pass.set_pipeline(&self.pipeline);
             pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             for cmd in &self.draw_queue {
-                let DrawCommand::Background { asset_id } = cmd;
-                let Some(tex_view) = self.texture_cache.get(asset_id) else { continue; };
-                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("texture_bind_group"),
-                    layout: &self.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(tex_view) },
-                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-                    ],
-                });
-                pass.set_bind_group(0, &bind_group, &[]);
-                pass.draw(0..6, 0..1);
+                match cmd {
+                    DrawCommand::Background { asset_id } => {
+                        let Some(tex_view) = self.texture_cache.get(asset_id) else {
+                            continue;
+                        };
+                        let bind_group =
+                            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("texture_bind_group"),
+                                layout: &self.bind_group_layout,
+                                entries: &[
+                                    wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: wgpu::BindingResource::TextureView(tex_view),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 1,
+                                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                                    },
+                                ],
+                            });
+                        pass.set_bind_group(0, &bind_group, &[]);
+                        pass.draw(0..6, 0..1);
+                    }
+                    DrawCommand::Sprite { asset_id, position } => {
+                        let Some(tex_view) = self.texture_cache.get(asset_id) else {
+                            continue;
+                        };
+
+                        let (img_w, img_h) = match self.texture_cache.get_size(asset_id) {
+                            None => return Ok(()),
+                            Some((img_w, img_h)) => (img_w, img_h),
+                        };
+                        let (x, y, w, h) = self.position_to_ndc(*position, img_w, img_h);
+
+                        let sprites: [Vertex; 6] = [
+                            Vertex {
+                                position: [x, y],
+                                tex_coord: [0.0, 0.0],
+                            },
+                            Vertex {
+                                position: [x + w, y],
+                                tex_coord: [1.0, 0.0],
+                            },
+                            Vertex {
+                                position: [x + w, y - h],
+                                tex_coord: [1.0, 1.0],
+                            },
+                            Vertex {
+                                position: [x, y],
+                                tex_coord: [0.0, 0.0],
+                            },
+                            Vertex {
+                                position: [x + w, y - h],
+                                tex_coord: [1.0, 1.0],
+                            },
+                            Vertex {
+                                position: [x, y - h],
+                                tex_coord: [0.0, 1.0],
+                            },
+                        ];
+                        let sprite_vbo =
+                            self.device
+                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("sprite_quad_vbo"),
+                                    contents: bytemuck::cast_slice(&sprites),
+                                    usage: wgpu::BufferUsages::VERTEX,
+                                });
+                        let bind_group =
+                            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("sprite_bind_group"),
+                                layout: &self.bind_group_layout,
+                                entries: &[
+                                    wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: wgpu::BindingResource::TextureView(tex_view),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 1,
+                                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                                    },
+                                ],
+                            });
+                        pass.set_vertex_buffer(0, sprite_vbo.slice(..));
+                        pass.set_bind_group(0, &bind_group, &[]);
+                        pass.draw(0..6, 0..1);
+                    }
+                };
             }
         }
+
         self.queue.submit(std::iter::once(encoder.finish()));
         frame.present();
         Ok(())
     }
 
-    pub fn render_frame_with_egui<E>(
-        &mut self,
-        egui_draw: E,
-    ) -> Result<(), wgpu::SurfaceError>
+    pub fn render_frame_with_egui<E>(&mut self, egui_draw: E) -> Result<(), wgpu::SurfaceError>
     where
         E: FnOnce(&mut wgpu::CommandEncoder, &wgpu::TextureView),
     {
@@ -320,27 +459,94 @@ impl Renderer {
             pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
             for cmd in &self.draw_queue {
-                let DrawCommand::Background { asset_id } = cmd;
-                let Some(tex_view) = self.texture_cache.get(asset_id) else {
-                    continue;
-                };
+                match cmd {
+                    DrawCommand::Background { asset_id } => {
+                        let Some(tex_view) = self.texture_cache.get(asset_id) else {
+                            continue;
+                        };
 
-                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("texture_bind_group"),
-                    layout: &self.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(tex_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(&self.sampler),
-                        },
-                    ],
-                });
-                pass.set_bind_group(0, &bind_group, &[]);
-                pass.draw(0..6, 0..1);
+                        let bind_group =
+                            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("texture_bind_group"),
+                                layout: &self.bind_group_layout,
+                                entries: &[
+                                    wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: wgpu::BindingResource::TextureView(tex_view),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 1,
+                                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                                    },
+                                ],
+                            });
+                        pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                        pass.set_bind_group(0, &bind_group, &[]);
+                        pass.draw(0..6, 0..1);
+                    }
+                    DrawCommand::Sprite { asset_id, position } => {
+                        let Some(tex_view) = self.texture_cache.get(asset_id) else {
+                            continue;
+                        };
+                        let (img_w, img_h) = match self.texture_cache.get_size(asset_id) {
+                            None => return Ok(()),
+                            Some((img_w, img_h)) => (img_w, img_h),
+                        };
+                        let (x, y, w, h) = self.position_to_ndc(*position, img_w, img_h);
+
+                        let sprites: [Vertex; 6] = [
+                            Vertex {
+                                position: [x, y],
+                                tex_coord: [0.0, 0.0],
+                            },
+                            Vertex {
+                                position: [x + w, y],
+                                tex_coord: [1.0, 0.0],
+                            },
+                            Vertex {
+                                position: [x + w, y - h],
+                                tex_coord: [1.0, 1.0],
+                            },
+                            Vertex {
+                                position: [x, y],
+                                tex_coord: [0.0, 0.0],
+                            },
+                            Vertex {
+                                position: [x + w, y - h],
+                                tex_coord: [1.0, 1.0],
+                            },
+                            Vertex {
+                                position: [x, y - h],
+                                tex_coord: [0.0, 1.0],
+                            },
+                        ];
+                        let sprite_vbo =
+                            self.device
+                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("sprite_quad_vbo"),
+                                    contents: bytemuck::cast_slice(&sprites),
+                                    usage: wgpu::BufferUsages::VERTEX,
+                                });
+                        let bind_group =
+                            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("sprite_bind_group"),
+                                layout: &self.bind_group_layout,
+                                entries: &[
+                                    wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: wgpu::BindingResource::TextureView(tex_view),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 1,
+                                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                                    },
+                                ],
+                            });
+                        pass.set_vertex_buffer(0, sprite_vbo.slice(..));
+                        pass.set_bind_group(0, &bind_group, &[]);
+                        pass.draw(0..6, 0..1);
+                    }
+                }
             }
         }
 
@@ -416,4 +622,3 @@ fn load_texture_from_file(
     let view = texture.create_view(&TextureViewDescriptor::default());
     Ok((texture, view, width, height))
 }
-

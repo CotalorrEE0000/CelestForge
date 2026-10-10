@@ -54,13 +54,7 @@ impl ApplicationHandler for RenderTest {
         };
         surface.configure(&device, &config);
 
-        let mut renderer = Renderer::new(
-            window.clone(),
-            Arc::new(device),
-            Arc::new(queue),
-            surface,
-            config,
-        );
+        let mut renderer = Renderer::new(Arc::new(device), Arc::new(queue), surface, config);
         renderer.draw_bg("bg/bg_room.png");
         renderer.clear([0.05, 0.05, 0.08, 1.0]);
 

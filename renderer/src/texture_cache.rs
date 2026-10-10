@@ -46,4 +46,8 @@ impl TextureCache {
     pub fn get(&self, asset_id: &str) -> Option<&wgpu::TextureView> {
         self.cache.get(asset_id).map(|c| &c.view)
     }
+
+    pub fn get_size(&self, asset_id: &str) -> Option<(u32, u32)> {
+        self.cache.get(asset_id).map(|c| (c.width, c.height))
+    }
 }
