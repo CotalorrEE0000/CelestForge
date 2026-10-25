@@ -1,69 +1,18 @@
+pub mod pipeline;
+pub mod sprite;
 pub mod texture_cache;
+pub mod vertex;
 use celest_core::command::{self, Position};
 use std::path::{Path, PathBuf};
 use texture_cache::TextureCache;
+use vertex::{FULL_QUAD, Vertex};
 
-use wgpu::{
-    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendState, ColorTargetState,
-    ColorWrites, MultisampleState, PipelineCompilationOptions, PipelineLayoutDescriptor,
-    SamplerDescriptor, ShaderModuleDescriptor, ShaderStages, TextureDescriptor,
-    TextureViewDescriptor, util::DeviceExt,
+use wgpu::{TextureDescriptor, TextureViewDescriptor, util::DeviceExt};
+
+use crate::{
+    pipeline::create_pipeline_layout,
+    sprite::{build_quad_vertices, position_to_ndc},
 };
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Vertex {
-    pub position: [f32; 2],
-    pub tex_coord: [f32; 2],
-}
-
-impl Vertex {
-    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-            ],
-        }
-    }
-}
-
-const FULL_QUAD: [Vertex; 6] = [
-    Vertex {
-        position: [-1.0, -1.0],
-        tex_coord: [0.0, 1.0],
-    },
-    Vertex {
-        position: [1.0, -1.0],
-        tex_coord: [1.0, 1.0],
-    },
-    Vertex {
-        position: [1.0, 1.0],
-        tex_coord: [1.0, 0.0],
-    },
-    Vertex {
-        position: [-1.0, -1.0],
-        tex_coord: [0.0, 1.0],
-    },
-    Vertex {
-        position: [1.0, 1.0],
-        tex_coord: [1.0, 0.0],
-    },
-    Vertex {
-        position: [-1.0, 1.0],
-        tex_coord: [0.0, 0.0],
-    },
-];
 
 enum DrawCommand {
     Background {
@@ -102,75 +51,6 @@ impl Renderer {
         let format = surface_config.format;
         surface.configure(&*device, &surface_config);
 
-        let shader = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("texture_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("texture.wgsl").into()),
-        });
-
-        let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("texture_bind_layout"),
-            entries: &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("texture_pipeline_layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("texture_pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                compilation_options: PipelineCompilationOptions::default(),
-                buffers: &[Vertex::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                compilation_options: PipelineCompilationOptions::default(),
-                targets: &[Some(ColorTargetState {
-                    format,
-                    blend: Some(BlendState::ALPHA_BLENDING),
-                    write_mask: ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
-
-        let sampler = device.create_sampler(&SamplerDescriptor {
-            label: Some("sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("bg_quad_vbo"),
             contents: bytemuck::cast_slice(&FULL_QUAD),
@@ -185,14 +65,15 @@ impl Renderer {
         };
         let asset_root = PathBuf::from("assets");
 
+        let pipeline_set = create_pipeline_layout(&device, format);
         Self {
             device,
             queue,
             surface,
             surface_config: surface_config,
-            pipeline,
-            bind_group_layout,
-            sampler,
+            pipeline: pipeline_set.pipeline,
+            bind_group_layout: pipeline_set.bind_group_layout,
+            sampler: pipeline_set.sampler,
             texture_cache: TextureCache::new(),
             asset_root,
             vertex_buffer,
@@ -256,40 +137,6 @@ impl Renderer {
     pub fn clear_sprite(&mut self) {
         self.draw_queue
             .retain(|c| !matches!(c, DrawCommand::Sprite { .. }));
-    }
-
-    pub fn position_to_ndc(
-        &self,
-        position: command::Position,
-        img_w: u32,
-        img_h: u32,
-    ) -> (f32, f32, f32, f32) {
-        let w = self.surface_config.width as f32;
-        let h = self.surface_config.height as f32;
-
-        let max_w_px = w * 0.5;
-        let max_h_px = h * 0.6;
-        let scale = (max_w_px / img_w as f32).min(max_h_px / img_h as f32);
-
-        let target_h = img_h as f32 * scale;
-        let target_w = img_w as f32 * scale;
-        let (cx, cy) = match position {
-            command::Position::Left => (w * 0.25, h * 0.7),
-            command::Position::Center => (w * 0.5, h * 0.7),
-            command::Position::Right => (w * 0.75, h * 0.7),
-            command::Position::Absolute(px, py) => (px, py),
-        };
-
-        let cx_ndc = cx / w * 2.0 - 1.0;
-        let cy_ndc = 1.0 - cy / h * 2.0;
-
-        let hw = target_w / w;
-        let hh = target_h / h;
-
-        let x = cx_ndc - hw;
-        let y = cy_ndc + hh;
-
-        (x, y, hw * 2.0, hh * 2.0)
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -361,39 +208,21 @@ impl Renderer {
                             None => return Ok(()),
                             Some((img_w, img_h)) => (img_w, img_h),
                         };
-                        let (x, y, w, h) = self.position_to_ndc(*position, img_w, img_h);
+                        let (x, y, w, h) = position_to_ndc(
+                            *position,
+                            img_w,
+                            img_h,
+                            self.surface_config.width,
+                            self.surface_config.height,
+                        );
 
-                        let sprites: [Vertex; 6] = [
-                            Vertex {
-                                position: [x, y],
-                                tex_coord: [0.0, 0.0],
-                            },
-                            Vertex {
-                                position: [x + w, y],
-                                tex_coord: [1.0, 0.0],
-                            },
-                            Vertex {
-                                position: [x + w, y - h],
-                                tex_coord: [1.0, 1.0],
-                            },
-                            Vertex {
-                                position: [x, y],
-                                tex_coord: [0.0, 0.0],
-                            },
-                            Vertex {
-                                position: [x + w, y - h],
-                                tex_coord: [1.0, 1.0],
-                            },
-                            Vertex {
-                                position: [x, y - h],
-                                tex_coord: [0.0, 1.0],
-                            },
-                        ];
                         let sprite_vbo =
                             self.device
                                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                                     label: Some("sprite_quad_vbo"),
-                                    contents: bytemuck::cast_slice(&sprites),
+                                    contents: bytemuck::cast_slice(&build_quad_vertices(
+                                        x, y, w, h,
+                                    )),
                                     usage: wgpu::BufferUsages::VERTEX,
                                 });
                         let bind_group =
@@ -492,7 +321,13 @@ impl Renderer {
                             None => return Ok(()),
                             Some((img_w, img_h)) => (img_w, img_h),
                         };
-                        let (x, y, w, h) = self.position_to_ndc(*position, img_w, img_h);
+                        let (x, y, w, h) = position_to_ndc(
+                            *position,
+                            img_w,
+                            img_h,
+                            self.surface_config.width,
+                            self.surface_config.height,
+                        );
 
                         let sprites: [Vertex; 6] = [
                             Vertex {

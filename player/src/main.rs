@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
-use celest_core::{
-    command::{ChoiceOption, Command, VmWait},
-    loader::{Loader, Script},
-    vm::Vm,
-};
+pub mod game;
+pub mod input;
+pub mod ui;
+
 use celest_renderer::Renderer;
 use egui_wgpu::Renderer as EguiRenderer;
 use egui_winit::State as EguiState;
@@ -14,6 +13,11 @@ use winit::{
     event::WindowEvent,
     event_loop::{self, EventLoop},
     window::Window,
+};
+
+use crate::{
+    game::GameSession,
+    ui::{UiAction, UiState},
 };
 
 #[derive(Default)]
@@ -27,13 +31,9 @@ struct App {
     egui_render: Option<EguiRenderer>,
     egui_context: egui::Context,
 
+    session: Option<GameSession>,
     renderer: Option<Renderer>,
-    vm: Option<Vm>,
-    script: Option<Arc<Script>>,
-    pending_text: Option<(Option<String>, String)>,
-    show_choice: Option<Vec<ChoiceOption>>,
-    chapter_title: Option<(String, u32)>,
-    click_pending: bool,
+    ui: Option<UiState>,
 }
 
 impl App {
@@ -122,110 +122,31 @@ impl App {
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.handle_vm_step();
-
         let window = self.window.as_ref().unwrap();
         let scale_factor = window.scale_factor() as f32;
 
         let raw_input = self.egui_state.as_mut().unwrap().take_egui_input(window);
         self.egui_context.begin_pass(raw_input);
+        self.session
+            .as_mut()
+            .unwrap()
+            .step(self.renderer.as_mut().unwrap());
 
-        let mut continue_click = false;
-        let mut picked_choice: Option<String> = None;
+        let session = self.session.as_ref().unwrap();
 
-        egui::CentralPanel::default()
-            .frame(egui::Frame::default().fill(egui::Color32::TRANSPARENT))
-            .show(&self.egui_context, |ui| {
-                if let Some((title, _)) = &self.chapter_title {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(280.0);
-                        ui.heading(
-                            egui::RichText::new(title)
-                                .size(48.0)
-                                .color(egui::Color32::WHITE),
-                        );
-                    });
-                }
+        let action = UiState::draw(&self.egui_context, session);
 
-                if self.chapter_title.is_none() {
-                    if self.pending_text.is_some() && self.show_choice.is_none() {
-                        egui::Area::new(egui::Id::new("dialog_box"))
-                            .order(egui::Order::Foreground)
-                            .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -40.0])
-                            .show(&self.egui_context, |ui| {
-                                egui::Frame::none()
-                                    .fill(egui::Color32::from_black_alpha(180))
-                                    .rounding(8.0)
-                                    .inner_margin(egui::Margin::same(16.0))
-                                    .show(ui, |ui| {
-                                        ui.set_min_width(700.0);
-                                        if let Some((speaker, content)) = &self.pending_text {
-                                            if let Some(name) = speaker {
-                                                ui.label(
-                                                    egui::RichText::new(name)
-                                                        .strong()
-                                                        .size(20.0)
-                                                        .color(egui::Color32::LIGHT_BLUE),
-                                                );
-                                            }
-                                            ui.label(
-                                                egui::RichText::new(content)
-                                                    .size(18.0)
-                                                    .color(egui::Color32::WHITE),
-                                            );
-                                            ui.with_layout(
-                                                egui::Layout::right_to_left(egui::Align::RIGHT),
-                                                |ui| {
-                                                    ui.label(
-                                                        egui::RichText::new("▼ click to continue")
-                                                            .small()
-                                                            .color(egui::Color32::GRAY),
-                                                    );
-                                                },
-                                            );
-                                        }
-                                    });
-                            });
-
-                        if ui.input(|i| i.pointer.primary_clicked()) {
-                            continue_click = true;
-                        }
-                    }
-
-                    if let Some(options) = &self.show_choice {
-                        egui::Area::new(egui::Id::new("choice_box"))
-                            .order(egui::Order::Foreground)
-                            .anchor(egui::Align2::CENTER_CENTER, [0.0, -80.0])
-                            .show(&self.egui_context, |ui| {
-                                ui.vertical(|ui| {
-                                    for (i, opt) in options.iter().enumerate() {
-                                        let label = format!("{}. {}", i + 1, opt.text);
-                                        if ui
-                                            .button(egui::RichText::new(label).size(22.0))
-                                            .clicked()
-                                        {
-                                            picked_choice = Some(opt.jump_to.clone());
-                                        }
-                                    }
-                                });
-                            });
-                    }
-                }
-            });
+        match action {
+            UiAction::None => {}
+            UiAction::ClickContinue => {
+                self.session.as_mut().unwrap().resume_click();
+            }
+            UiAction::PickChoice { jump_to } => {
+                self.session.as_mut().unwrap().pick_choice(&jump_to);
+            }
+        }
 
         let full_output = self.egui_context.end_pass();
-
-        if continue_click && self.click_pending {
-            self.vm.as_mut().unwrap().resume();
-            self.click_pending = false;
-            self.pending_text = None;
-        }
-
-        if let Some(jump_to) = picked_choice {
-            self.vm.as_mut().unwrap().resume_with_choice(&jump_to);
-            self.show_choice = None;
-            self.click_pending = false;
-        }
 
         let egui_render = self.egui_render.as_mut().unwrap();
         let device = self.device.as_ref().unwrap();
@@ -293,116 +214,6 @@ impl App {
             }
         }
     }
-
-    fn handle_vm_step(&mut self) {
-        if let Some((_, remaining)) = self.chapter_title.as_mut() {
-            if *remaining <= 16 {
-                self.chapter_title = None;
-                self.vm.as_mut().unwrap().resume();
-            } else {
-                *remaining -= 16;
-            }
-            return;
-        }
-
-        if self.click_pending {
-            return;
-        }
-
-        if self.show_choice.is_some() {
-            return;
-        }
-
-        let vm = self.vm.as_mut().unwrap();
-
-        if matches!(vm.wait, VmWait::Timer(_)) {
-            if !vm.tick_timer(16) {
-                return;
-            }
-        }
-
-        if matches!(vm.wait, VmWait::Finished) {
-            return;
-        }
-
-        let wait = vm.step();
-
-        match &wait {
-            VmWait::Pending(cmd) => match cmd {
-                Command::SetBg { asset_id } => {
-                    self.renderer.as_mut().unwrap().draw_bg(asset_id);
-                    vm.resume();
-                }
-                Command::ClearBg => {
-                    self.renderer.as_mut().unwrap().clear_bg();
-                    vm.resume();
-                }
-                Command::ShowSprite {
-                    who,
-                    asset_id,
-                    position,
-                } => {
-                    // self.active_sprites.insert(who.clone(), asset_id.clone());
-                    eprintln!("[SPRITE] {}: {}", who, asset_id);
-                    self.renderer
-                        .as_mut()
-                        .unwrap()
-                        .draw_sprite(asset_id, *position);
-                    vm.resume();
-                }
-                Command::HideSprite { who } => {
-                    // self.active_sprites.remove(who);
-                    eprintln!("[SPRITE] hide {}", who);
-                    self.renderer.as_mut().unwrap().hide_sprite(who);
-                    vm.resume();
-                }
-                Command::ClearSprites => {
-                    // self.active_sprites.clear();
-                    eprintln!("[SPRITE] clear all");
-                    self.renderer.as_mut().unwrap().clear_sprite();
-                    vm.resume();
-                }
-                Command::Text { speaker, content } => {
-                    self.pending_text = Some((speaker.clone(), content.clone()));
-                    self.click_pending = true;
-                }
-                Command::ChapterTitle { title, duration_ms } => {
-                    self.chapter_title = Some((title.clone(), *duration_ms));
-                    vm.resume();
-                }
-                Command::PlayVoice { who, asset_id } => {
-                    eprintln!("[VOICE] {}: {}", who, asset_id);
-                    vm.resume();
-                }
-                Command::PlaySe { asset_id } => {
-                    eprintln!("[SE] {}", asset_id);
-                    vm.resume();
-                }
-                Command::PlayBgm { asset_id } => {
-                    eprintln!("[BGM] {}", asset_id);
-                    vm.resume();
-                }
-                Command::Log(text) => {
-                    eprintln!("[LOG] {}", text);
-                    vm.resume();
-                }
-                _ => {
-                    vm.resume();
-                }
-            },
-            VmWait::Click => {
-                self.click_pending = true;
-            }
-            VmWait::Choice(options) => {
-                self.show_choice = Some(options.clone());
-            }
-            VmWait::Timer(_) => {}
-            VmWait::Running => {}
-            VmWait::Finished => {
-                println!("=== SCRIPT ENDED ===");
-            }
-        }
-    }
 }
 
 impl ApplicationHandler for App {
@@ -417,12 +228,11 @@ impl ApplicationHandler for App {
         let surface = self.surface.take().unwrap();
         let config = self.config.take().unwrap();
         self.renderer = Some(Renderer::new(device, queue, surface, config));
-        let script = Arc::new(
-            Loader::from_file("scripts/test_chapter1.json")
-                .expect("Load scripts/test_chapter1.json Faild!"),
+        self.session = Some(
+            GameSession::from_script_path("scripts/test_chapter1.json")
+                .expect("Load script failed!"),
         );
-        self.script = Some(Arc::clone(&script));
-        self.vm = Some(Vm::new(Arc::clone(&script)));
+        self.ui = Some(UiState::new());
         event_loop.set_control_flow(event_loop::ControlFlow::Poll);
     }
     fn window_event(
@@ -447,19 +257,8 @@ impl ApplicationHandler for App {
                     eprintln!("RENDER ERROR: {e}")
                 }
             }
-            WindowEvent::MouseInput {
-                device_id: _,
-                state,
-                button,
-            } => {
-                if state == winit::event::ElementState::Pressed
-                    && button == winit::event::MouseButton::Left
-                    && self.click_pending
-                {
-                    self.vm.as_mut().unwrap().resume();
-                    self.click_pending = false;
-                    self.pending_text = None;
-                }
+            WindowEvent::KeyboardInput { event, .. } => {
+                input::handle(&event, self.session.as_mut().unwrap());
             }
             _ => {}
         }
