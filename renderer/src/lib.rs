@@ -14,7 +14,8 @@ use crate::{
     sprite::{build_quad_vertices, position_to_ndc},
 };
 
-enum DrawCommand {
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub enum DrawCommand {
     Background {
         asset_id: String,
     },
@@ -36,7 +37,7 @@ pub struct Renderer {
     texture_cache: TextureCache,
 
     vertex_buffer: wgpu::Buffer,
-    draw_queue: Vec<DrawCommand>,
+    pub draw_queue: Vec<DrawCommand>,
     clear_color: wgpu::Color,
     asset_root: PathBuf,
 }

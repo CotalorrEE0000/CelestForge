@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 pub mod game;
 pub mod input;
+pub mod save;
 pub mod ui;
 
 use celest_renderer::Renderer;
@@ -258,7 +259,11 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                input::handle(&event, self.session.as_mut().unwrap());
+                input::handle(
+                    &event,
+                    self.session.as_mut().unwrap(),
+                    self.renderer.as_mut().unwrap(),
+                );
             }
             _ => {}
         }

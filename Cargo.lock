@@ -402,6 +402,8 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "pollster",
+ "serde",
+ "serde_json",
  "wgpu",
  "winit",
 ]
@@ -414,6 +416,8 @@ dependencies = [
  "celest_core",
  "image",
  "pollster",
+ "serde",
+ "serde_json",
  "wgpu",
  "winit",
 ]

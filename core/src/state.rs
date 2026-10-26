@@ -27,10 +27,3 @@ impl GameState {
         self.history.push(line);
     }
 }
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct SaveData {
-    pub pc: usize,
-    pub flags: HashMap<String, bool>,
-    pub vars: HashMap<String, i64>,
-}

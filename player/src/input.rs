@@ -1,3 +1,4 @@
+use celest_renderer::Renderer;
 use winit::{event::KeyEvent, keyboard::PhysicalKey};
 
 use crate::game::GameSession;
@@ -34,11 +35,13 @@ pub fn map_key(event: &KeyEvent) -> InputAction {
     }
 }
 
-pub fn handle(event: &KeyEvent, session: &mut GameSession) {
+pub fn handle(event: &KeyEvent, session: &mut GameSession, renderer: &mut Renderer) {
     let action = map_key(event);
     match action {
         InputAction::None => {}
         InputAction::Advance => session.resume_click(),
+        InputAction::QuickSave => session.quick_save(renderer),
+        InputAction::QuickLoad => session.quick_load(renderer),
         _ => {}
     }
 }
