@@ -31,6 +31,7 @@ impl GameSession {
         let json = serde_json::to_string(&savedata).unwrap();
         std::fs::create_dir_all("saves").unwrap();
         std::fs::write("saves/quick.json", json).unwrap();
+        println!("[SAVE] saved to saves/quick.json");
     }
     pub fn quick_load(&mut self, renderer: &mut Renderer) {
         let json = std::fs::read_to_string("saves/quick.json").unwrap();
@@ -43,6 +44,7 @@ impl GameSession {
         self.pending_text = None;
         self.show_choice = None;
         renderer.draw_queue = data.draw_queue;
+        println!("[LOAD] loaded from saves/quick.json");
     }
     pub fn save_to_slot(&self, slot: usize) {}
     pub fn load_from_slot(&mut self, slot: usize) {}
