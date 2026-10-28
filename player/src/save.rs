@@ -44,6 +44,7 @@ impl GameSession {
         self.pending_text = None;
         self.show_choice = None;
         renderer.draw_queue = data.draw_queue;
+        renderer.ensure_textures_loaded();
         println!("[LOAD] loaded from saves/quick.json");
     }
     pub fn save_to_slot(&self, slot: usize) {}

@@ -409,6 +409,22 @@ impl Renderer {
     pub fn queue_clone(&self) -> std::sync::Arc<wgpu::Queue> {
         std::sync::Arc::clone(&self.queue)
     }
+
+    pub fn ensure_textures_loaded(&mut self) {
+        let ids: Vec<String> = self
+            .draw_queue
+            .iter()
+            .map(|c| match c {
+                DrawCommand::Background { asset_id } => asset_id.clone(),
+                DrawCommand::Sprite { asset_id, .. } => asset_id.clone(),
+            })
+            .collect();
+        for id in ids {
+            let _ =
+                self.texture_cache
+                    .get_or_load(&self.device, &self.queue, &id, &self.asset_root);
+        }
+    }
 }
 
 fn load_texture_from_file(

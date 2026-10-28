@@ -2,18 +2,36 @@ use crate::game::GameSession;
 
 pub enum UiAction {
     None,
+    StartGame,
+    LoadGame,
     ClickContinue,
     PickChoice { jump_to: String },
 }
 
-pub struct UiState;
+pub enum UiMode {
+    Title,
+    Normal,
+}
+
+pub struct UiState {
+    pub mode: UiMode,
+}
 
 impl UiState {
     pub fn new() -> Self {
-        Self
+        Self {
+            mode: UiMode::Title,
+        }
     }
 
-    pub fn draw(ctx: &egui::Context, session: &GameSession) -> UiAction {
+    pub fn draw(&mut self, ctx: &egui::Context, session: &GameSession) -> UiAction {
+        match self.mode {
+            UiMode::Title => self.draw_title(ctx),
+            UiMode::Normal => self.draw_game(ctx, session),
+        }
+    }
+
+    fn draw_game(&mut self, ctx: &egui::Context, session: &GameSession) -> UiAction {
         let mut action = UiAction::None;
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(egui::Color32::TRANSPARENT))
@@ -94,6 +112,36 @@ impl UiState {
                             });
                     }
                 }
+            });
+        action
+    }
+    fn draw_title(&mut self, ctx: &egui::Context) -> UiAction {
+        let mut action = UiAction::None;
+        egui::CentralPanel::default()
+            .frame(egui::Frame::default().fill(egui::Color32::from_rgb(12, 12, 24)))
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(200.0);
+                    ui.heading(
+                        egui::RichText::new("Celest Forge")
+                            .size(64.0)
+                            .color(egui::Color32::WHITE),
+                    );
+                    ui.add_space(88.0);
+                    if ui
+                        .button(egui::RichText::new("开始游戏").size(28.0))
+                        .clicked()
+                    {
+                        action = UiAction::StartGame;
+                    }
+                    ui.add_space(16.0);
+                    if ui
+                        .button(egui::RichText::new("继续游戏").size(28.0))
+                        .clicked()
+                    {
+                        action = UiAction::LoadGame;
+                    }
+                });
             });
         action
     }

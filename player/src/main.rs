@@ -18,7 +18,7 @@ use winit::{
 
 use crate::{
     game::GameSession,
-    ui::{UiAction, UiState},
+    ui::{UiAction, UiMode, UiState},
 };
 
 #[derive(Default)]
@@ -128,14 +128,16 @@ impl App {
 
         let raw_input = self.egui_state.as_mut().unwrap().take_egui_input(window);
         self.egui_context.begin_pass(raw_input);
-        self.session
-            .as_mut()
-            .unwrap()
-            .step(self.renderer.as_mut().unwrap());
+        if matches!(self.ui.as_ref().unwrap().mode, UiMode::Normal) {
+            self.session
+                .as_mut()
+                .unwrap()
+                .step(self.renderer.as_mut().unwrap());
+        }
 
         let session = self.session.as_ref().unwrap();
 
-        let action = UiState::draw(&self.egui_context, session);
+        let action = self.ui.as_mut().unwrap().draw(&self.egui_context, session);
 
         match action {
             UiAction::None => {}
@@ -144,6 +146,16 @@ impl App {
             }
             UiAction::PickChoice { jump_to } => {
                 self.session.as_mut().unwrap().pick_choice(&jump_to);
+            }
+            UiAction::StartGame => {
+                self.ui.as_mut().unwrap().mode = UiMode::Normal;
+            }
+            UiAction::LoadGame => {
+                self.session
+                    .as_mut()
+                    .unwrap()
+                    .quick_load(self.renderer.as_mut().unwrap());
+                self.ui.as_mut().unwrap().mode = UiMode::Normal;
             }
         }
 
