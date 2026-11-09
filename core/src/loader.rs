@@ -1,7 +1,6 @@
 use crate::command::{ChoiceOption, Command, Position, TransitionKind};
 use serde_json::Value;
-use std::collections::HashMap;
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 pub struct Script {
     pub commands: Vec<Command>,
@@ -15,6 +14,8 @@ impl Script {
 }
 
 pub struct Loader;
+const FALLBACK_ENDING_TITLE: &str = "感谢游玩";
+const FALLBACK_ENDING_DURATION_MS: u32 = 3000;
 
 impl Loader {
     pub fn from_json_str(input: &str) -> Result<Script, String> {
@@ -30,6 +31,7 @@ impl Loader {
             commands.push(cmd);
         }
 
+        ensure_ending(&mut commands);
         let mut labels = HashMap::new();
         for (i, cmd) in commands.iter().enumerate() {
             if let Command::Label(name) = cmd {
@@ -214,4 +216,98 @@ fn bool_field(obj: &serde_json::Map<String, Value>, key: &str) -> Result<bool, S
     obj.get(key)
         .and_then(|v| v.as_bool())
         .ok_or_else(|| format!("MISSING OR WRONG bool KEY: {key}"))
+}
+fn fallback_ending_title() -> Command {
+    Command::ChapterTitle {
+        title: FALLBACK_ENDING_TITLE.to_string(),
+        duration_ms: FALLBACK_ENDING_DURATION_MS,
+    }
+}
+
+fn ensure_ending(commands: &mut Vec<Command>) {
+    let Some(end_idx) = commands.iter().rposition(|c| matches!(c, Command::End)) else {
+        eprintln!("[LOADER] SCRIPT LACK END, CELESTFORGE HAS ALREADY ADDED ENDING");
+        commands.push(fallback_ending_title());
+        commands.push(Command::End);
+        return;
+    };
+    let tail = commands[..end_idx]
+        .iter()
+        .rev()
+        .find(|c| !matches!(c, Command::Log(_) | Command::Label(_)));
+
+    if !matches!(tail, Some(Command::ChapterTitle { .. })) {
+        eprintln!("[LOADER] SCRIPT LACK OF ENDING, CELESTFORGE HAS ALREADY ADDED");
+        commands.insert(end_idx, fallback_ending_title());
+    }
+}
+
+#[cfg(test)]
+mod ending_tests {
+    use super::*;
+
+    fn kinds(s: &Script) -> Vec<&'static str> {
+        s.commands
+            .iter()
+            .map(|c| match c {
+                Command::Text { .. } => "Text",
+                Command::Log(_) => "Log",
+                Command::Label(_) => "Label",
+                Command::ChapterTitle { .. } => "Title",
+                Command::End => "End",
+                _ => "Other",
+            })
+            .collect()
+    }
+
+    #[test]
+    fn empty_script_gets_ending() {
+        let s = Loader::from_json_str("[]").unwrap();
+        assert_eq!(kinds(&s), vec!["Title", "End"]);
+    }
+
+    #[test]
+    fn missing_end_gets_title_and_end() {
+        let s = Loader::from_json_str(r#"[{"type":"Text","content":"hi"}]"#).unwrap();
+        assert_eq!(kinds(&s), vec!["Text", "Title", "End"]);
+    }
+
+    #[test]
+    fn text_then_end_gets_title_inserted() {
+        let s =
+            Loader::from_json_str(r#"[{"type":"Text","content":"hi"},{"type":"End"}]"#).unwrap();
+        assert_eq!(kinds(&s), vec!["Text", "Title", "End"]);
+    }
+
+    #[test]
+    fn author_title_is_kept() {
+        let s = Loader::from_json_str(
+            r#"[{"type":"ChapterTitle","title":"my own ending","duration_ms":1000},{"type":"End"}]"#,
+        )
+        .unwrap();
+        assert_eq!(kinds(&s), vec!["Title", "End"]);
+        match &s.commands[0] {
+            Command::ChapterTitle { title, .. } => assert_eq!(title, "my own ending"),
+            _ => panic!("first should be ChapterTitle"),
+        }
+    }
+
+    #[test]
+    fn log_between_title_and_end_is_skipped() {
+        let s = Loader::from_json_str(
+            r#"[{"type":"ChapterTitle","title":"fin","duration_ms":1000},{"type":"Log","text":"x"},{"type":"End"}]"#,
+        )
+        .unwrap();
+        assert_eq!(kinds(&s), vec!["Title", "Log", "End"]);
+    }
+
+    #[test]
+    fn labels_still_point_to_right_index_after_insert() {
+        let s = Loader::from_json_str(
+            r#"[{"type":"Label","name":"start"},{"type":"Text","content":"hi"},{"type":"End"}]"#,
+        )
+        .unwrap();
+        assert_eq!(s.label_index("start"), Some(0));
+        assert_eq!(kinds(&s), vec!["Label", "Text", "Title", "End"]);
+    }
 }
