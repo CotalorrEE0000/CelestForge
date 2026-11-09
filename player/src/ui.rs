@@ -6,8 +6,11 @@ pub enum UiAction {
     None,
     StartGame,
     LoadGame,
+    BackToTitle,
     ClickContinue,
     PickChoice { jump_to: String },
+    BackToGame,
+    OpenSlots,
     LoadSlot(usize),
     SaveSlot(usize),
     CloseBacklog,
@@ -16,6 +19,7 @@ pub enum UiAction {
 pub enum UiMode {
     Title,
     Normal,
+    Menu,
     Slots,
     BackLog,
 }
@@ -43,6 +47,7 @@ impl UiState {
     pub fn draw(&mut self, ctx: &egui::Context, session: &GameSession) -> UiAction {
         match self.mode {
             UiMode::Title => self.draw_title(ctx),
+            UiMode::Menu => self.draw_menu(ctx),
             UiMode::Normal => self.draw_game(ctx, session),
             UiMode::Slots => self.draw_slots(ctx),
             UiMode::BackLog => self.draw_backlog(ctx, session),
@@ -110,11 +115,11 @@ impl UiState {
                                                 },
                                             );
                                         }
-                                        if ui.input(|i| i.pointer.primary_clicked()) {
-                                            action = UiAction::ClickContinue
-                                        }
                                     });
                             });
+                        if area_resp.response.clicked() {
+                            action = UiAction::ClickContinue;
+                        }
                     }
 
                     if let Some(options) = &session.show_choice {

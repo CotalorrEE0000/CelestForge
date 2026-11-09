@@ -1,7 +1,10 @@
 use celest_renderer::Renderer;
 use winit::{event::KeyEvent, keyboard::PhysicalKey};
 
-use crate::game::GameSession;
+use crate::{
+    game::GameSession,
+    ui::{UiMode, UiState},
+};
 
 pub enum InputAction {
     None,
@@ -61,9 +64,14 @@ pub fn handle(
                 session.quick_load(renderer);
             }
         }
+        InputAction::ToggleMenu => {
+            ui.mode = match ui.mode {
+                UiMode::Normal => UiMode::Menu,
+                UiMode::Menu => UiMode::Normal,
                 UiMode::BackLog => UiMode::Normal,
                 _ => return,
             };
+        }
         InputAction::ToggleAuto => {
             if matches!(ui.mode, UiMode::Normal) {
                 session.auto.toggle();

@@ -170,6 +170,12 @@ impl App {
                     .quick_load(self.renderer.as_mut().unwrap());
                 self.ui.as_mut().unwrap().mode = UiMode::Normal;
             }
+            UiAction::BackToTitle => {
+                self.ui.as_mut().unwrap().mode = UiMode::Title;
+            }
+            UiAction::BackToGame => {
+                self.ui.as_mut().unwrap().mode = UiMode::Normal;
+            }
             UiAction::OpenSlots => {
                 self.ui.as_mut().unwrap().mode = UiMode::Slots;
             }
