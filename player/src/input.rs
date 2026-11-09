@@ -35,7 +35,12 @@ pub fn map_key(event: &KeyEvent) -> InputAction {
     }
 }
 
-pub fn handle(event: &KeyEvent, session: &mut GameSession, renderer: &mut Renderer) {
+pub fn handle(
+    event: &KeyEvent,
+    ui: &mut UiState,
+    session: &mut GameSession,
+    renderer: &mut Renderer,
+) {
     let action = map_key(event);
     match action {
         InputAction::None => {}
@@ -43,5 +48,15 @@ pub fn handle(event: &KeyEvent, session: &mut GameSession, renderer: &mut Render
         InputAction::QuickSave => session.quick_save(renderer),
         InputAction::QuickLoad => session.quick_load(renderer),
         _ => {}
+        InputAction::QuickSave => {
+            if matches!(ui.mode, UiMode::Normal) {
+                session.quick_save(renderer);
+            }
+        }
+        InputAction::QuickLoad => {
+            if matches!(ui.mode, UiMode::Normal) {
+                session.quick_load(renderer);
+            }
+        }
     }
 }

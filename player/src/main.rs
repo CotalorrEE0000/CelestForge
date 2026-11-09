@@ -148,6 +148,11 @@ impl App {
                 self.session.as_mut().unwrap().pick_choice(&jump_to);
             }
             UiAction::StartGame => {
+                self.session = Some(
+                    GameSession::from_script_path("scripts/test_chapter1.json")
+                        .expect("Load script failed!"),
+                );
+                self.renderer.as_mut().unwrap().draw_queue.clear();
                 self.ui.as_mut().unwrap().mode = UiMode::Normal;
             }
             UiAction::LoadGame => {
@@ -156,6 +161,28 @@ impl App {
                     .unwrap()
                     .quick_load(self.renderer.as_mut().unwrap());
                 self.ui.as_mut().unwrap().mode = UiMode::Normal;
+            }
+            UiAction::OpenSlots => {
+                self.ui.as_mut().unwrap().mode = UiMode::Slots;
+            }
+            UiAction::LoadSlot(slot) => {
+                self.session
+                    .as_mut()
+                    .unwrap()
+                    .load_from_slot(slot, self.renderer.as_mut().unwrap());
+                self.ui.as_mut().unwrap().mode = UiMode::Normal;
+            }
+            UiAction::SaveSlot(slot) => {
+                self.session
+                    .as_mut()
+                    .unwrap()
+                    .save_to_slot(slot, self.renderer.as_ref().unwrap());
+                let back_to_menu = matches!(self.ui.as_ref().unwrap().slots_return, UiMode::Menu);
+                self.ui.as_mut().unwrap().mode = if back_to_menu {
+                    UiMode::Menu
+                } else {
+                    UiMode::Title
+                };
             }
         }
 

@@ -16,25 +16,48 @@ pub struct SaveData {
 
 impl GameSession {
     pub fn quick_save(&self, renderer: &Renderer) {
-        let savedata = SaveData {
+        self.save_to_slot(0, renderer);
+    }
+    pub fn quick_load(&mut self, renderer: &mut Renderer) {
+        self.load_from_slot(0, renderer);
+    }
+
+    fn save_path(slot: usize) -> String {
+        if slot == 0 {
+            "saves/quick.json".to_string()
+        } else {
+            format!("saves/slot_{}.json", slot)
+        }
+    }
+
+    fn build_save(&self, renderer: &Renderer) -> SaveData {
+        SaveData {
             pc: self.vm.pc.saturating_sub(1),
             flags: self.vm.state.flags.clone(),
             vars: self.vm.state.vars.clone(),
             draw_queue: renderer.draw_queue.clone(),
             chapter_title: self.chapter_title.as_ref().map(|(t, _)| t.clone()),
-            preview_text: self.pending_text.as_ref().map(|(_, t)| t.clone()),
+            preview_text: self
+                .pending_text
+                .as_ref()
+                .map(|(_, t)| t.clone())
+                .or_else(|| self.chapter_title.as_ref().map(|(t, _)| t.clone())),
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
-        };
+        }
+    }
+    pub fn save_to_slot(&self, slot: usize, renderer: &Renderer) {
+        let savedata = self.build_save(renderer);
         let json = serde_json::to_string(&savedata).unwrap();
         std::fs::create_dir_all("saves").unwrap();
-        std::fs::write("saves/quick.json", json).unwrap();
-        println!("[SAVE] saved to saves/quick.json");
+        std::fs::write(Self::save_path(slot), json).unwrap();
+        println!("[SAVE] saved to {}", Self::save_path(slot));
     }
-    pub fn quick_load(&mut self, renderer: &mut Renderer) {
-        let json = std::fs::read_to_string("saves/quick.json").unwrap();
+
+    pub fn load_from_slot(&mut self, slot: usize, renderer: &mut Renderer) {
+        let json = std::fs::read_to_string(Self::save_path(slot)).unwrap();
         let data: SaveData = serde_json::from_str(&json).unwrap();
         self.vm.pc = data.pc;
         self.vm.state.flags = data.flags;
@@ -45,8 +68,6 @@ impl GameSession {
         self.show_choice = None;
         renderer.draw_queue = data.draw_queue;
         renderer.ensure_textures_loaded();
-        println!("[LOAD] loaded from saves/quick.json");
+        println!("[LOAD] loaded from {}", Self::save_path(slot));
     }
-    pub fn save_to_slot(&self, slot: usize) {}
-    pub fn load_from_slot(&mut self, slot: usize) {}
 }

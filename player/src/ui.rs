@@ -6,11 +6,15 @@ pub enum UiAction {
     LoadGame,
     ClickContinue,
     PickChoice { jump_to: String },
+    LoadSlot(usize),
+    SaveSlot(usize),
 }
 
 pub enum UiMode {
     Title,
     Normal,
+    Slots,
+    BackLog,
 }
 
 pub struct UiState {
