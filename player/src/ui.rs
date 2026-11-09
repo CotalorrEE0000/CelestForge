@@ -85,6 +85,14 @@ impl UiState {
                                                             .small()
                                                             .color(egui::Color32::GRAY),
                                                     );
+                                                    if session.auto.enabled {
+                                                        ui.label(
+                                                            egui::RichText::new("Auto")
+                                                                .small()
+                                                                .strong()
+                                                                .color(egui::Color32::LIGHT_GREEN),
+                                                        );
+                                                    }
                                                 },
                                             );
                                         }

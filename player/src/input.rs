@@ -7,6 +7,7 @@ pub enum InputAction {
     None,
     Advance,
     ToggleMenu,
+    ToggleAuto,
     QuickSave,
     QuickLoad,
     BacklogUp,
@@ -27,6 +28,7 @@ pub fn map_key(event: &KeyEvent) -> InputAction {
     match code {
         KeyCode::Space | KeyCode::Enter | KeyCode::NumpadEnter => InputAction::Advance,
         KeyCode::Escape => InputAction::ToggleMenu,
+        KeyCode::Tab => InputAction::ToggleAuto,
         KeyCode::F5 => InputAction::QuickSave,
         KeyCode::F9 => InputAction::QuickLoad,
         KeyCode::ArrowLeft | KeyCode::PageUp => InputAction::BacklogUp,
@@ -44,10 +46,11 @@ pub fn handle(
     let action = map_key(event);
     match action {
         InputAction::None => {}
-        InputAction::Advance => session.resume_click(),
-        InputAction::QuickSave => session.quick_save(renderer),
-        InputAction::QuickLoad => session.quick_load(renderer),
-        _ => {}
+        InputAction::Advance => {
+            if matches!(ui.mode, UiMode::Normal) {
+                session.resume_click();
+            }
+        }
         InputAction::QuickSave => {
             if matches!(ui.mode, UiMode::Normal) {
                 session.quick_save(renderer);
@@ -56,6 +59,11 @@ pub fn handle(
         InputAction::QuickLoad => {
             if matches!(ui.mode, UiMode::Normal) {
                 session.quick_load(renderer);
+            }
+        }
+        InputAction::ToggleAuto => {
+            if matches!(ui.mode, UiMode::Normal) {
+                session.auto.toggle();
             }
         }
     }

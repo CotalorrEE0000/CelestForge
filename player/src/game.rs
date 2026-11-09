@@ -14,6 +14,46 @@ pub struct GameSession {
     pub show_choice: Option<Vec<ChoiceOption>>,
     pub chapter_title: Option<(String, u32)>,
     pub click_pending: bool,
+    pub auto: Autoplay,
+}
+
+pub struct Autoplay {
+    pub enabled: bool,
+    pub interval_ms: u64,
+    elapsed_ms: u64,
+}
+
+impl Autoplay {
+    pub fn new() -> Self {
+        Self {
+            enabled: false,
+            interval_ms: 1200,
+            elapsed_ms: 0,
+        }
+    }
+
+    pub fn toggle(&mut self) {
+        self.enabled = !self.enabled;
+        self.elapsed_ms = 0;
+    }
+
+    pub fn reset(&mut self) {
+        self.elapsed_ms = 0;
+    }
+
+    fn tick(&mut self, dt_ms: u32) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        self.elapsed_ms += dt_ms as u64;
+        if self.elapsed_ms >= self.interval_ms {
+            self.elapsed_ms = 0;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl GameSession {
@@ -26,6 +66,7 @@ impl GameSession {
             show_choice: None,
             chapter_title: None,
             click_pending: false,
+            auto: Autoplay::new(),
         })
     }
 
@@ -159,11 +200,23 @@ impl GameSession {
             self.click_pending = false;
             self.pending_text = None;
         }
+        self.auto.reset();
     }
 
     pub fn pick_choice(&mut self, jump_to: &str) {
         self.vm.resume_with_choice(jump_to);
         self.show_choice = None;
-        self.click_pending = false
+        self.click_pending = false;
+        self.auto.reset();
+    }
+
+    pub fn auto_tick(&mut self, dt_ms: u32) {
+        if !self.auto.tick(dt_ms) {
+            return;
+        }
+
+        if self.click_pending && self.show_choice.is_none() && self.chapter_title.is_none() {
+            self.resume_click();
+        }
     }
 }

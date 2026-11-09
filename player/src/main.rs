@@ -35,6 +35,7 @@ struct App {
     session: Option<GameSession>,
     renderer: Option<Renderer>,
     ui: Option<UiState>,
+    last_frame: Option<std::time::Instant>,
 }
 
 impl App {
@@ -125,10 +126,17 @@ impl App {
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let window = self.window.as_ref().unwrap();
         let scale_factor = window.scale_factor() as f32;
+        let now = std::time::Instant::now();
+        let dt_ms = self
+            .last_frame
+            .map(|t| now.duration_since(t).as_millis() as u32)
+            .unwrap_or(0);
+        self.last_frame = Some(now);
 
         let raw_input = self.egui_state.as_mut().unwrap().take_egui_input(window);
         self.egui_context.begin_pass(raw_input);
         if matches!(self.ui.as_ref().unwrap().mode, UiMode::Normal) {
+            self.session.as_mut().unwrap().auto_tick(dt_ms);
             self.session
                 .as_mut()
                 .unwrap()
@@ -300,6 +308,7 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } => {
                 input::handle(
                     &event,
+                    self.ui.as_mut().unwrap(),
                     self.session.as_mut().unwrap(),
                     self.renderer.as_mut().unwrap(),
                 );
