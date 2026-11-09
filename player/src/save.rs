@@ -36,12 +36,12 @@ impl GameSession {
             flags: self.vm.state.flags.clone(),
             vars: self.vm.state.vars.clone(),
             draw_queue: renderer.draw_queue.clone(),
-            chapter_title: self.chapter_title.as_ref().map(|(t, _)| t.clone()),
+            chapter_title: self.chapter_title.as_ref().map(|(t, _, _)| t.clone()),
             preview_text: self
                 .pending_text
                 .as_ref()
                 .map(|(_, t)| t.clone())
-                .or_else(|| self.chapter_title.as_ref().map(|(t, _)| t.clone())),
+                .or_else(|| self.chapter_title.as_ref().map(|(t, _, _)| t.clone())),
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

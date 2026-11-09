@@ -73,13 +73,21 @@ impl UiState {
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(egui::Color32::TRANSPARENT))
             .show(ctx, |ui| {
-                if let Some((title, _)) = &session.chapter_title {
+                if let Some((title, remaining, total)) = &session.chapter_title {
+                    // 前 400ms 淡入，后 400ms 淡出
+                    let elapsed = (total - remaining) as f32;
+                    let alpha = (elapsed / 400.0)
+                        .min(1.0)
+                        .min(*remaining as f32 / 400.0)
+                        .clamp(0.0, 1.0);
                     ui.vertical_centered(|ui| {
                         ui.add_space(280.0);
                         ui.heading(
                             egui::RichText::new(title)
                                 .size(48.0)
-                                .color(egui::Color32::WHITE),
+                                .color(egui::Color32::from_white_alpha(
+                                    (alpha * 255.0) as u8,
+                                )),
                         );
                     });
                 }
@@ -472,11 +480,13 @@ impl UiState {
                             .color(egui::Color32::WHITE),
                     );
 
-                    let mut cps = 40.0_f32;
-                    ui.add_enabled(
-                        false,
-                        egui::Slider::new(&mut cps, 10.0..=100.0).suffix(" cps"),
-                    );
+                    ui.add_enabled_ui(false, |ui| {
+                        let mut cps = 40.0_f32;
+                        ui.add_sized(
+                            [360.0, 24.0],
+                            egui::Slider::new(&mut cps, 10.0..=100.0).suffix(" cps"),
+                        );
+                    });
 
                     ui.label(
                         egui::RichText::new("打字机尚未实现，占位中")

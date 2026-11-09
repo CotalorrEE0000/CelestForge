@@ -12,7 +12,7 @@ pub struct GameSession {
 
     pub pending_text: Option<(Option<String>, String)>,
     pub show_choice: Option<Vec<ChoiceOption>>,
-    pub chapter_title: Option<(String, u32)>,
+    pub chapter_title: Option<(String, u32, u32)>, // (标题, 剩余ms, 总时长ms)
     pub click_pending: bool,
     pub auto: Autoplay,
     pub finished: bool,
@@ -73,7 +73,7 @@ impl GameSession {
     }
 
     pub fn step(&mut self, renderer: &mut Renderer, dt_ms: u32) {
-        if let Some((_, remaining)) = self.chapter_title.as_mut() {
+        if let Some((_, remaining, _)) = self.chapter_title.as_mut() {
             *remaining = remaining.saturating_sub(dt_ms);
             if *remaining == 0 {
                 self.chapter_title = None;
@@ -153,7 +153,7 @@ impl GameSession {
                         return;
                     }
                     Command::ChapterTitle { title, duration_ms } => {
-                        self.chapter_title = Some((title.clone(), *duration_ms));
+                        self.chapter_title = Some((title.clone(), *duration_ms, *duration_ms));
                         vm.resume();
                         return;
                     }

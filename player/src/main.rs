@@ -346,6 +346,10 @@ impl ApplicationHandler for App {
                 if let Err(e) = self.render() {
                     eprintln!("RENDER ERROR: {e}")
                 }
+                if self.exit_requested {
+                    println!("Celest Forge Closed!");
+                    event_loop.exit();
+                }
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 input::handle(
@@ -354,15 +358,6 @@ impl ApplicationHandler for App {
                     self.session.as_mut().unwrap(),
                     self.renderer.as_mut().unwrap(),
                 );
-            }
-            WindowEvent::RedrawRequested => {
-                if let Err(e) = self.render() {
-                    eprintln!("RENDER ERROR: {e}")
-                }
-                if self.exit_requested {
-                    println!("Celest Forge Closed!");
-                    event_loop.exit();
-                }
             }
             _ => {}
         }
