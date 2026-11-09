@@ -1,4 +1,6 @@
-use crate::game::GameSession;
+use std::path::Path;
+
+use crate::{game::GameSession, save::SaveData};
 
 pub enum UiAction {
     None,
@@ -19,12 +21,21 @@ pub enum UiMode {
 
 pub struct UiState {
     pub mode: UiMode,
+    pub slots_return: UiMode,
+    pub slots_mode: SlotsMode,
+}
+
+pub enum SlotsMode {
+    Load,
+    Save,
 }
 
 impl UiState {
     pub fn new() -> Self {
         Self {
             mode: UiMode::Title,
+            slots_return: UiMode::Title,
+            slots_mode: SlotsMode::Load,
         }
     }
 
@@ -32,6 +43,7 @@ impl UiState {
         match self.mode {
             UiMode::Title => self.draw_title(ctx),
             UiMode::Normal => self.draw_game(ctx, session),
+            UiMode::Slots => self.draw_slots(ctx),
         }
     }
 
@@ -127,6 +139,60 @@ impl UiState {
             });
         action
     }
+
+    fn draw_menu(&mut self, ctx: &egui::Context) -> UiAction {
+        let mut action = UiAction::None;
+        egui::CentralPanel::default()
+            .frame(egui::Frame::default().fill(egui::Color32::from_black_alpha(160)))
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(160.0);
+                    ui.heading(
+                        egui::RichText::new("菜单")
+                            .size(40.0)
+                            .color(egui::Color32::WHITE),
+                    );
+
+                    ui.add_space(48.0);
+                    if ui
+                        .button(egui::RichText::new("返回游戏").size(26.0))
+                        .clicked()
+                    {
+                        action = UiAction::BackToGame;
+                    }
+
+                    ui.add_space(16.0);
+                    if ui
+                        .button(egui::RichText::new("返回标题").size(26.0))
+                        .clicked()
+                    {
+                        action = UiAction::BackToTitle;
+                    }
+
+                    ui.add_space(16.0);
+                    if ui
+                        .button(egui::RichText::new("读取存档").size(26.0))
+                        .clicked()
+                    {
+                        self.slots_mode = SlotsMode::Load;
+                        self.slots_return = UiMode::Menu;
+                        action = UiAction::OpenSlots;
+                    }
+
+                    ui.add_space(16.0);
+                    if ui
+                        .button(egui::RichText::new("保存存档").size(26.0))
+                        .clicked()
+                    {
+                        self.slots_mode = SlotsMode::Save;
+                        self.slots_return = UiMode::Menu;
+                        action = UiAction::OpenSlots
+                    }
+                });
+            });
+        action
+    }
+
     fn draw_title(&mut self, ctx: &egui::Context) -> UiAction {
         let mut action = UiAction::None;
         egui::CentralPanel::default()
@@ -153,6 +219,81 @@ impl UiState {
                     {
                         action = UiAction::LoadGame;
                     }
+                    ui.add_space(16.0);
+                    if ui
+                        .button(egui::RichText::new("读取存档").size(28.0))
+                        .clicked()
+                    {
+                        self.slots_return = UiMode::Title;
+                        self.slots_mode = SlotsMode::Load;
+                        action = UiAction::OpenSlots;
+                    }
+                });
+            });
+        action
+    }
+
+    fn draw_slots(&mut self, ctx: &egui::Context) -> UiAction {
+        let mut action = UiAction::None;
+        let saving = matches!(self.slots_mode, SlotsMode::Save);
+        egui::CentralPanel::default()
+            .frame(egui::Frame::default().fill(egui::Color32::from_rgb(12, 12, 24)))
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(80.0);
+                    ui.heading(
+                        egui::RichText::new(if saving {
+                            "保存存档"
+                        } else {
+                            "读取存档"
+                        })
+                        .size(40.0)
+                        .color(egui::Color32::WHITE),
+                    );
+                    ui.add_space(32.0);
+                    for slot in 0..6 {
+                        let path = if slot == 0 {
+                            "saves/quick.json".to_string()
+                        } else {
+                            format!("saves/slot_{}.json", slot)
+                        };
+                        let exists = Path::new(&path).exists();
+                        let label = if exists {
+                            match std::fs::read_to_string(&path)
+                                .ok()
+                                .and_then(|j| serde_json::from_str::<SaveData>(&j).ok())
+                            {
+                                Some(d) => {
+                                    format!("SLOT {}: {}", slot, d.preview_text.unwrap_or_default())
+                                }
+                                None => format!("SLOT {} (LOAD FAILED)", slot),
+                            }
+                        } else {
+                            format!("SLOT {}(EMPTY)", slot)
+                        };
+                        let btn = ui.button(egui::RichText::new(label).size(22.0));
+                        if btn.clicked() {
+                            if saving {
+                                action = UiAction::SaveSlot(slot);
+                            } else if exists {
+                                action = UiAction::LoadSlot(slot);
+                            }
+                        }
+                    }
+                    ui.add_space(24.0);
+                    let back = if matches!(self.slots_return, UiMode::Menu) {
+                        UiAction::BackToGame
+                    } else {
+                        UiAction::BackToTitle
+                    };
+                    if ui.button(egui::RichText::new("Back").size(22.0)).clicked() {
+                        action = back;
+                    }
+                })
+            });
+        action
+    }
+
                 });
             });
         action
