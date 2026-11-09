@@ -10,6 +10,7 @@ pub enum UiAction {
     PickChoice { jump_to: String },
     LoadSlot(usize),
     SaveSlot(usize),
+    CloseBacklog,
 }
 
 pub enum UiMode {
@@ -44,6 +45,7 @@ impl UiState {
             UiMode::Title => self.draw_title(ctx),
             UiMode::Normal => self.draw_game(ctx, session),
             UiMode::Slots => self.draw_slots(ctx),
+            UiMode::BackLog => self.draw_backlog(ctx, session),
         }
     }
 
@@ -65,8 +67,8 @@ impl UiState {
 
                 if session.chapter_title.is_none() {
                     if session.pending_text.is_some() && session.show_choice.is_none() {
-                        egui::Area::new(egui::Id::new("dialog_box"))
-                            .order(egui::Order::Foreground)
+                        let area_resp = egui::Area::new(egui::Id::new("dialog_box"))
+                            .order(egui::Order::Middle)
                             .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -40.0])
                             .show(ctx, |ui| {
                                 egui::Frame::none()
@@ -117,7 +119,7 @@ impl UiState {
 
                     if let Some(options) = &session.show_choice {
                         egui::Area::new(egui::Id::new("choice_box"))
-                            .order(egui::Order::Foreground)
+                            .order(egui::Order::Middle)
                             .anchor(egui::Align2::CENTER_CENTER, [0.0, -80.0])
                             .show(ctx, |ui| {
                                 ui.vertical(|ui| {
@@ -294,6 +296,51 @@ impl UiState {
         action
     }
 
+    fn draw_backlog(&mut self, ctx: &egui::Context, session: &GameSession) -> UiAction {
+        let mut action = UiAction::None;
+        egui::CentralPanel::default()
+            .frame(egui::Frame::default().fill(egui::Color32::from_black_alpha(230)))
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(24.0);
+                    ui.heading(
+                        egui::RichText::new("History")
+                            .size(32.0)
+                            .color(egui::Color32::WHITE),
+                    );
+                    ui.add_space(12.0);
+                });
+
+                let history = &session.vm.state.history;
+                let start = history.len().saturating_sub(100);
+                egui::ScrollArea::vertical()
+                    .max_height(520.0)
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        if history.is_empty() {
+                            ui.label(
+                                egui::RichText::new("(Don't have any dialogs)")
+                                    .size(18.0)
+                                    .color(egui::Color32::GRAY),
+                            );
+                        };
+                        for line in &history[start..] {
+                            ui.label(
+                                egui::RichText::new(line)
+                                    .size(18.0)
+                                    .color(egui::Color32::WHITE),
+                            );
+                            ui.add_space(6.0);
+                        }
+                    });
+                ui.add_space(16.0);
+                ui.vertical_centered(|ui| {
+                    if ui
+                        .button(egui::RichText::new("Close [ESC]").size(20.0))
+                        .clicked()
+                    {
+                        action = UiAction::CloseBacklog;
+                    }
                 });
             });
         action

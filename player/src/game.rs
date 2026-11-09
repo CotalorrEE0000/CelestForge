@@ -142,6 +142,11 @@ impl GameSession {
                         continue;
                     }
                     Command::Text { speaker, content } => {
+                        let line = match speaker {
+                            Some(name) => format!("{} 「{}」", name, content),
+                            None => content.clone(),
+                        };
+                        self.vm.state.push_history(line);
                         self.pending_text = Some((speaker.clone(), content.clone()));
                         self.click_pending = true;
                         return;

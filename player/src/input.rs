@@ -61,9 +61,22 @@ pub fn handle(
                 session.quick_load(renderer);
             }
         }
+                UiMode::BackLog => UiMode::Normal,
+                _ => return,
+            };
         InputAction::ToggleAuto => {
             if matches!(ui.mode, UiMode::Normal) {
                 session.auto.toggle();
+            }
+        }
+        InputAction::BacklogUp => {
+            if matches!(ui.mode, UiMode::Normal) {
+                ui.mode = UiMode::BackLog;
+            }
+        }
+        InputAction::BacklogDown => {
+            if matches!(ui.mode, UiMode::BackLog) {
+                ui.mode = UiMode::Normal;
             }
         }
     }

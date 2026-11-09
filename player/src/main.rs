@@ -192,6 +192,9 @@ impl App {
                     UiMode::Title
                 };
             }
+            UiAction::CloseBacklog => {
+                self.ui.as_mut().unwrap().mode = UiMode::Normal;
+            }
         }
 
         let full_output = self.egui_context.end_pass();
