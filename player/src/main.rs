@@ -36,6 +36,7 @@ struct App {
     renderer: Option<Renderer>,
     ui: Option<UiState>,
     last_frame: Option<std::time::Instant>,
+    exit_requested: bool,
 }
 
 impl App {
@@ -140,7 +141,13 @@ impl App {
             self.session
                 .as_mut()
                 .unwrap()
-                .step(self.renderer.as_mut().unwrap());
+                .step(self.renderer.as_mut().unwrap(), dt_ms);
+        }
+
+        if matches!(self.ui.as_ref().unwrap().mode, UiMode::Normal)
+            && self.session.as_ref().unwrap().finished
+        {
+            self.ui.as_mut().unwrap().mode = UiMode::Title;
         }
 
         let session = self.session.as_ref().unwrap();
@@ -199,7 +206,33 @@ impl App {
                 };
             }
             UiAction::CloseBacklog => {
-                self.ui.as_mut().unwrap().mode = UiMode::Normal;
+                let back = self.ui.as_ref().unwrap().backlog_return;
+                self.ui.as_mut().unwrap().mode = back;
+            }
+            UiAction::BackToMenu => {
+                self.ui.as_mut().unwrap().mode = UiMode::Menu;
+            }
+            UiAction::OpenBacklog => {
+                self.ui.as_mut().unwrap().mode = UiMode::BackLog;
+            }
+            UiAction::OpenSettings => {
+                self.ui.as_mut().unwrap().mode = UiMode::Settings;
+            }
+            UiAction::ConfirmOverwrite(slot) => {
+                self.session
+                    .as_mut()
+                    .unwrap()
+                    .save_to_slot(slot, self.renderer.as_ref().unwrap());
+                self.ui.as_mut().unwrap().pending_overwrite = None;
+            }
+            UiAction::CancelOverwrite => {
+                self.ui.as_mut().unwrap().pending_overwrite = None;
+            }
+            UiAction::SetAutoplay(ms) => {
+                self.session.as_mut().unwrap().auto.interval_ms = ms;
+            }
+            UiAction::Quit => {
+                self.exit_requested = true;
             }
         }
 
@@ -321,6 +354,15 @@ impl ApplicationHandler for App {
                     self.session.as_mut().unwrap(),
                     self.renderer.as_mut().unwrap(),
                 );
+            }
+            WindowEvent::RedrawRequested => {
+                if let Err(e) = self.render() {
+                    eprintln!("RENDER ERROR: {e}")
+                }
+                if self.exit_requested {
+                    println!("Celest Forge Closed!");
+                    event_loop.exit();
+                }
             }
             _ => {}
         }

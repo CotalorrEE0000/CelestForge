@@ -15,6 +15,7 @@ pub struct GameSession {
     pub chapter_title: Option<(String, u32)>,
     pub click_pending: bool,
     pub auto: Autoplay,
+    pub finished: bool,
 }
 
 pub struct Autoplay {
@@ -67,16 +68,16 @@ impl GameSession {
             chapter_title: None,
             click_pending: false,
             auto: Autoplay::new(),
+            finished: false,
         })
     }
 
-    pub fn step(&mut self, renderer: &mut Renderer) {
+    pub fn step(&mut self, renderer: &mut Renderer, dt_ms: u32) {
         if let Some((_, remaining)) = self.chapter_title.as_mut() {
-            if *remaining <= 16 {
+            *remaining = remaining.saturating_sub(dt_ms);
+            if *remaining == 0 {
                 self.chapter_title = None;
                 self.vm.resume();
-            } else {
-                *remaining -= 16;
             }
             return;
         }
@@ -193,6 +194,7 @@ impl GameSession {
                 VmWait::Running => return,
                 VmWait::Finished => {
                     println!("=== GameEvent ENDED ===");
+                    self.finished = true;
                     return;
                 }
             }

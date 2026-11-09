@@ -55,7 +55,7 @@ pub fn handle(
             }
         }
         InputAction::QuickSave => {
-            if matches!(ui.mode, UiMode::Normal) {
+            if matches!(ui.mode, UiMode::Normal) && !session.finished {
                 session.quick_save(renderer);
             }
         }
@@ -69,6 +69,7 @@ pub fn handle(
                 UiMode::Normal => UiMode::Menu,
                 UiMode::Menu => UiMode::Normal,
                 UiMode::BackLog => UiMode::Normal,
+                UiMode::Settings => UiMode::Menu,
                 _ => return,
             };
         }
@@ -79,6 +80,7 @@ pub fn handle(
         }
         InputAction::BacklogUp => {
             if matches!(ui.mode, UiMode::Normal) {
+                ui.backlog_return = UiMode::Normal;
                 ui.mode = UiMode::BackLog;
             }
         }

@@ -10,24 +10,35 @@ pub enum UiAction {
     ClickContinue,
     PickChoice { jump_to: String },
     BackToGame,
+    BackToMenu,
     OpenSlots,
     LoadSlot(usize),
     SaveSlot(usize),
+    ConfirmOverwrite(usize),
+    CancelOverwrite,
+    SetAutoplay(u64),
+    OpenBacklog,
+    OpenSettings,
     CloseBacklog,
+    Quit,
 }
 
+#[derive(Clone, Copy)]
 pub enum UiMode {
     Title,
     Normal,
     Menu,
     Slots,
     BackLog,
+    Settings,
 }
 
 pub struct UiState {
     pub mode: UiMode,
     pub slots_return: UiMode,
     pub slots_mode: SlotsMode,
+    pub backlog_return: UiMode,
+    pub pending_overwrite: Option<usize>,
 }
 
 pub enum SlotsMode {
@@ -41,6 +52,8 @@ impl UiState {
             mode: UiMode::Title,
             slots_return: UiMode::Title,
             slots_mode: SlotsMode::Load,
+            backlog_return: UiMode::Normal,
+            pending_overwrite: None,
         }
     }
 
@@ -51,6 +64,7 @@ impl UiState {
             UiMode::Normal => self.draw_game(ctx, session),
             UiMode::Slots => self.draw_slots(ctx),
             UiMode::BackLog => self.draw_backlog(ctx, session),
+            UiMode::Settings => self.draw_settings(ctx, session),
         }
     }
 
@@ -195,6 +209,28 @@ impl UiState {
                         self.slots_return = UiMode::Menu;
                         action = UiAction::OpenSlots
                     }
+
+                    ui.add_space(16.0);
+                    if ui
+                        .button(egui::RichText::new("回顾历史").size(26.0))
+                        .clicked()
+                    {
+                        self.backlog_return = UiMode::Menu;
+                        action = UiAction::OpenBacklog;
+                    }
+
+                    ui.add_space(16.0);
+                    if ui.button(egui::RichText::new("设置").size(26.0)).clicked() {
+                        action = UiAction::OpenSettings;
+                    }
+
+                    ui.add_space(16.0);
+                    if ui
+                        .button(egui::RichText::new("退出游戏").size(26.0))
+                        .clicked()
+                    {
+                        action = UiAction::Quit;
+                    }
                 });
             });
         action
@@ -212,6 +248,7 @@ impl UiState {
                             .size(64.0)
                             .color(egui::Color32::WHITE),
                     );
+
                     ui.add_space(88.0);
                     if ui
                         .button(egui::RichText::new("开始游戏").size(28.0))
@@ -219,6 +256,7 @@ impl UiState {
                     {
                         action = UiAction::StartGame;
                     }
+
                     ui.add_space(16.0);
                     if ui
                         .button(egui::RichText::new("继续游戏").size(28.0))
@@ -226,6 +264,7 @@ impl UiState {
                     {
                         action = UiAction::LoadGame;
                     }
+
                     ui.add_space(16.0);
                     if ui
                         .button(egui::RichText::new("读取存档").size(28.0))
@@ -234,6 +273,14 @@ impl UiState {
                         self.slots_return = UiMode::Title;
                         self.slots_mode = SlotsMode::Load;
                         action = UiAction::OpenSlots;
+                    }
+
+                    ui.add_space(16.0);
+                    if ui
+                        .button(egui::RichText::new("退出游戏").size(26.0))
+                        .clicked()
+                    {
+                        action = UiAction::Quit;
                     }
                 });
             });
@@ -258,35 +305,46 @@ impl UiState {
                         .color(egui::Color32::WHITE),
                     );
                     ui.add_space(32.0);
-                    for slot in 0..6 {
-                        let path = if slot == 0 {
-                            "saves/quick.json".to_string()
-                        } else {
-                            format!("saves/slot_{}.json", slot)
-                        };
-                        let exists = Path::new(&path).exists();
-                        let label = if exists {
-                            match std::fs::read_to_string(&path)
-                                .ok()
-                                .and_then(|j| serde_json::from_str::<SaveData>(&j).ok())
-                            {
-                                Some(d) => {
-                                    format!("SLOT {}: {}", slot, d.preview_text.unwrap_or_default())
+                    let blocked = self.pending_overwrite.is_none();
+                    ui.add_enabled_ui(!blocked, |ui| {
+                        for slot in 0..6 {
+                            let path = if slot == 0 {
+                                "saves/quick.json".to_string()
+                            } else {
+                                format!("saves/slot_{}.json", slot)
+                            };
+                            let exists = Path::new(&path).exists();
+                            let label = if exists {
+                                match std::fs::read_to_string(&path)
+                                    .ok()
+                                    .and_then(|j| serde_json::from_str::<SaveData>(&j).ok())
+                                {
+                                    Some(d) => {
+                                        format!(
+                                            "SLOT {}: {}",
+                                            slot,
+                                            d.preview_text.unwrap_or_default()
+                                        )
+                                    }
+                                    None => format!("SLOT {} (LOAD FAILED)", slot),
                                 }
-                                None => format!("SLOT {} (LOAD FAILED)", slot),
-                            }
-                        } else {
-                            format!("SLOT {}(EMPTY)", slot)
-                        };
-                        let btn = ui.button(egui::RichText::new(label).size(22.0));
-                        if btn.clicked() {
-                            if saving {
-                                action = UiAction::SaveSlot(slot);
-                            } else if exists {
-                                action = UiAction::LoadSlot(slot);
+                            } else {
+                                format!("SLOT {}(EMPTY)", slot)
+                            };
+                            let btn = ui.button(egui::RichText::new(label).size(22.0));
+                            if btn.clicked() {
+                                if saving {
+                                    if exists {
+                                        self.pending_overwrite = Some(slot);
+                                    } else {
+                                        action = UiAction::SaveSlot(slot);
+                                    }
+                                } else if exists {
+                                    action = UiAction::LoadSlot(slot);
+                                }
                             }
                         }
-                    }
+                    });
                     ui.add_space(24.0);
                     let back = if matches!(self.slots_return, UiMode::Menu) {
                         UiAction::BackToGame
@@ -295,6 +353,30 @@ impl UiState {
                     };
                     if ui.button(egui::RichText::new("Back").size(22.0)).clicked() {
                         action = back;
+                    }
+
+                    if let Some(slot) = self.pending_overwrite {
+                        egui::Window::new("确认覆盖")
+                            .collapsible(false)
+                            .resizable(false)
+                            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                            .show(ctx, |ui| {
+                                ui.label(egui::RichText::new(format!(
+                                    "SLOT {} 已有存档，确定覆盖？",
+                                    slot
+                                )));
+                                ui.add_space(12.0);
+                                ui.horizontal(|ui| {
+                                    if ui.button(egui::RichText::new("确定").size(20.0)).clicked()
+                                    {
+                                        action = UiAction::ConfirmOverwrite(slot);
+                                    }
+                                    if ui.button(egui::RichText::new("取消").size(20.0)).clicked()
+                                    {
+                                        action = UiAction::CancelOverwrite;
+                                    }
+                                });
+                            });
                     }
                 })
             });
@@ -345,6 +427,66 @@ impl UiState {
                         .clicked()
                     {
                         action = UiAction::CloseBacklog;
+                    }
+                });
+            });
+        action
+    }
+
+    fn draw_settings(&mut self, ctx: &egui::Context, session: &GameSession) -> UiAction {
+        let mut action = UiAction::None;
+        egui::CentralPanel::default()
+            .frame(egui::Frame::default().fill(egui::Color32::from_rgb(12, 12, 24)))
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(80.0);
+                    ui.heading(
+                        egui::RichText::new("设置")
+                            .size(40.0)
+                            .color(egui::Color32::WHITE),
+                    );
+
+                    ui.add_space(48.0);
+
+                    ui.label(
+                        egui::RichText::new("自动播放间隔")
+                            .size(18.0)
+                            .color(egui::Color32::WHITE),
+                    );
+
+                    let mut ms = session.auto.interval_ms as u32;
+                    if ui
+                        .add_sized(
+                            [360.0, 24.0],
+                            egui::Slider::new(&mut ms, 300..=3000).suffix("ms"),
+                        )
+                        .changed()
+                    {
+                        action = UiAction::SetAutoplay(ms as u64);
+                    }
+
+                    ui.add_space(32.0);
+                    ui.label(
+                        egui::RichText::new("文字速度")
+                            .size(18.0)
+                            .color(egui::Color32::WHITE),
+                    );
+
+                    let mut cps = 40.0_f32;
+                    ui.add_enabled(
+                        false,
+                        egui::Slider::new(&mut cps, 10.0..=100.0).suffix(" cps"),
+                    );
+
+                    ui.label(
+                        egui::RichText::new("打字机尚未实现，占位中")
+                            .size(14.0)
+                            .color(egui::Color32::GRAY),
+                    );
+
+                    ui.add_space(48.0);
+                    if ui.button(egui::RichText::new("返回").size(24.0)).clicked() {
+                        action = UiAction::BackToMenu;
                     }
                 });
             });
