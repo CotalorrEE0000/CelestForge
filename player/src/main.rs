@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+pub mod audio;
 pub mod game;
 pub mod input;
 pub mod save;
@@ -204,6 +205,12 @@ impl App {
                 } else {
                     UiMode::Title
                 };
+            }
+            UiAction::SetBgmVolume(v) => {
+                self.session.as_mut().unwrap().audio.set_bgm_volume(v);
+            }
+            UiAction::SetSeVolume(v) => {
+                self.session.as_mut().unwrap().audio.set_se_volume(v);
             }
             UiAction::CloseBacklog => {
                 let back = self.ui.as_ref().unwrap().backlog_return;

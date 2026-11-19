@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use celest_core::{
     command::{ChoiceOption, Command, VmWait},
@@ -6,6 +6,8 @@ use celest_core::{
     vm::Vm,
 };
 use celest_renderer::Renderer;
+
+use crate::audio::AudioSystem;
 
 pub struct GameSession {
     pub vm: Vm,
@@ -17,6 +19,7 @@ pub struct GameSession {
     pub auto: Autoplay,
     pub finished: bool,
     pub transition: Option<(u32, u32)>,
+    pub audio: AudioSystem,
 }
 
 pub struct Autoplay {
@@ -71,6 +74,7 @@ impl GameSession {
             click_pending: false,
             auto: Autoplay::new(),
             finished: false,
+            audio: AudioSystem::new(PathBuf::from("assets")),
         })
     }
 
@@ -183,13 +187,8 @@ impl GameSession {
                         vm.resume();
                         continue;
                     }
-                    Command::PlaySe { asset_id } => {
-                        eprintln!("[SE] {} (Phase 3)", asset_id);
-                        vm.resume();
-                        continue;
-                    }
                     Command::PlayBgm { asset_id } => {
-                        eprintln!("[BGM] {} (Phase 3)", asset_id);
+                        self.audio.play_bgm(asset_id);
                         vm.resume();
                         continue;
                     }
@@ -201,6 +200,26 @@ impl GameSession {
                     Command::Transition { kind, duration_ms } => {
                         renderer.start_transition(*kind, *duration_ms);
                         self.transition = Some((*duration_ms, *duration_ms));
+                        vm.resume();
+                        continue;
+                    }
+                    Command::StopBgm => {
+                        self.audio.stop_bgm();
+                        vm.resume();
+                        continue;
+                    }
+                    Command::PlaySe { asset_id } => {
+                        self.audio.play_se(asset_id);
+                        vm.resume();
+                        continue;
+                    }
+                    Command::StopSe => {
+                        self.audio.stop_se();
+                        vm.resume();
+                        continue;
+                    }
+                    Command::StopVoice => {
+                        self.audio.stop_voice();
                         vm.resume();
                         continue;
                     }

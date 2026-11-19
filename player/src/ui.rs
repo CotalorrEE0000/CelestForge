@@ -17,6 +17,8 @@ pub enum UiAction {
     ConfirmOverwrite(usize),
     CancelOverwrite,
     SetAutoplay(u64),
+    SetBgmVolume(f32),
+    SetSeVolume(f32),
     OpenBacklog,
     OpenSettings,
     CloseBacklog,
@@ -172,7 +174,6 @@ impl UiState {
             .frame(egui::Frame::default().fill(egui::Color32::from_black_alpha(160)))
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
-                    ui.add_space(160.0);
                     ui.add_space(120.0);
                     ui.heading(
                         egui::RichText::new("菜单")
@@ -180,7 +181,6 @@ impl UiState {
                             .color(egui::Color32::WHITE),
                     );
 
-                    ui.add_space(48.0);
                     ui.add_space(38.0);
                     if ui
                         .button(egui::RichText::new("返回游戏").size(26.0))
@@ -446,6 +446,7 @@ impl UiState {
             .frame(egui::Frame::default().fill(egui::Color32::from_rgb(12, 12, 24)))
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
+                    ui.spacing_mut().slider_width = 300.0;
                     ui.add_space(80.0);
                     ui.heading(
                         egui::RichText::new("设置")
@@ -492,6 +493,34 @@ impl UiState {
                             .size(14.0)
                             .color(egui::Color32::GRAY),
                     );
+
+                    ui.add_space(32.0);
+                    ui.label(
+                        egui::RichText::new("BGM 音量")
+                            .size(18.0)
+                            .color(egui::Color32::WHITE),
+                    );
+                    let mut bgm = session.audio.bgm_volume();
+                    if ui
+                        .add_sized([360.0, 24.0], egui::Slider::new(&mut bgm, 0.0..=1.0))
+                        .changed()
+                    {
+                        action = UiAction::SetBgmVolume(bgm);
+                    }
+
+                    ui.add_space(32.0);
+                    ui.label(
+                        egui::RichText::new("Se 音量")
+                            .size(18.0)
+                            .color(egui::Color32::WHITE),
+                    );
+                    let mut se = session.audio.se_volume();
+                    if ui
+                        .add_sized([360.0, 24.0], egui::Slider::new(&mut se, 0.0..=1.0))
+                        .changed()
+                    {
+                        action = UiAction::SetSeVolume(se);
+                    }
 
                     ui.add_space(48.0);
                     if ui.button(egui::RichText::new("返回").size(24.0)).clicked() {
