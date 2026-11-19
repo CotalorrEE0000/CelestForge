@@ -67,7 +67,9 @@ impl GameSession {
         self.pending_text = None;
         self.show_choice = None;
         self.finished = false;
+        self.transition = None;
         renderer.draw_queue = data.draw_queue;
+        renderer.end_transition();
         renderer.ensure_textures_loaded();
         println!("[LOAD] loaded from {}", Self::save_path(slot));
     }

@@ -1,8 +1,9 @@
 pub mod pipeline;
 pub mod sprite;
 pub mod texture_cache;
+pub mod transition;
 pub mod vertex;
-use celest_core::command::{self, Position};
+use celest_core::command::{self, Position, TransitionKind};
 use std::path::{Path, PathBuf};
 use texture_cache::TextureCache;
 use vertex::{FULL_QUAD, Vertex};
@@ -12,6 +13,7 @@ use wgpu::{TextureDescriptor, TextureViewDescriptor, util::DeviceExt};
 use crate::{
     pipeline::create_pipeline_layout,
     sprite::{build_quad_vertices, position_to_ndc},
+    transition::{SceneTarget, TransitionPass},
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -40,6 +42,8 @@ pub struct Renderer {
     pub draw_queue: Vec<DrawCommand>,
     clear_color: wgpu::Color,
     asset_root: PathBuf,
+    scene: SceneTarget,
+    transition: TransitionPass,
 }
 
 impl Renderer {
@@ -67,6 +71,8 @@ impl Renderer {
         let asset_root = PathBuf::from("assets");
 
         let pipeline_set = create_pipeline_layout(&device, format);
+        let scene = SceneTarget::new(&device, format, surface_config.width, surface_config.height);
+        let transition = TransitionPass::new(&device, format);
         Self {
             device,
             queue,
@@ -80,6 +86,8 @@ impl Renderer {
             vertex_buffer,
             draw_queue: Vec::new(),
             clear_color,
+            scene: scene,
+            transition: transition,
         }
     }
 
@@ -145,7 +153,70 @@ impl Renderer {
             self.surface_config.width = width;
             self.surface_config.height = height;
             self.surface.configure(&self.device, &self.surface_config);
+            self.scene = SceneTarget::new(&self.device, self.surface_config.format, width, height);
+            self.end_transition();
         }
+    }
+
+    pub fn start_transition(&mut self, kind: TransitionKind, duration_ms: u32) {
+        if matches!(kind, TransitionKind::None) || duration_ms == 0 {
+            return;
+        }
+        let size = wgpu::Extent3d {
+            width: self.scene.width,
+            height: self.scene.height,
+            depth_or_array_layers: 1,
+        };
+        let prev = self.device.create_texture(&TextureDescriptor {
+            label: Some("prev_tex"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.surface_config.format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("transition_snapshot"),
+            });
+        encoder.copy_texture_to_texture(
+            wgpu::ImageCopyTexture {
+                texture: &self.scene.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyTexture {
+                texture: &prev,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            size,
+        );
+        self.queue.submit(std::iter::once(encoder.finish()));
+        let view = prev.create_view(&TextureViewDescriptor::default());
+        self.transition.prev_view = Some(view);
+        self.transition.active_kind = Some(kind);
+        self.set_transition_progress(0.0);
+    }
+
+    pub fn set_transition_progress(&mut self, progress: f32) {
+        let data: [f32; 4] = [progress.clamp(0.0, 1.0), 0.0, 0.0, 0.0];
+        self.queue
+            .write_buffer(&self.transition.params_buf, 0, bytemuck::bytes_of(&data));
+    }
+
+    pub fn end_transition(&mut self) {
+        self.transition.prev_view = None;
+        self.transition.active_kind = None;
+    }
+
+    pub fn transition_active(&self) -> bool {
+        self.transition.prev_view.is_some()
     }
 
     pub fn render_frame(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -268,12 +339,12 @@ impl Renderer {
                 label: Some("celest_frame"),
             });
 
-        // pass 1: background
+        // pass 1: scene -> offscreen scene_tex
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("celest_bg_pass"),
+                label: Some("celest_scene_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: &self.scene.view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(self.clear_color),
@@ -386,7 +457,40 @@ impl Renderer {
             }
         }
 
-        // pass 2: egui (same encoder, same view)
+        // pass 2: composite scene (+ transition) into the swapchain
+        {
+            let (pipeline, tex_a) = match self.transition.active_kind {
+                Some(kind) => (
+                    self.transition.pipeline_for(kind),
+                    self.transition.prev_view.as_ref().unwrap(),
+                ),
+                None => (
+                    self.transition.pipeline_for(TransitionKind::Fade),
+                    &self.scene.view,
+                ),
+            };
+            let tex_b = &self.scene.view;
+            let bind = self.transition.bind_group(&self.device, tex_a, tex_b);
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("celest_transition_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, &bind, &[]);
+            pass.draw(0..3, 0..1);
+        }
+
+        // pass 3: egui (same encoder, same view)
         egui_draw(&mut encoder, &view);
 
         self.queue.submit(std::iter::once(encoder.finish()));

@@ -12,10 +12,11 @@ pub struct GameSession {
 
     pub pending_text: Option<(Option<String>, String)>,
     pub show_choice: Option<Vec<ChoiceOption>>,
-    pub chapter_title: Option<(String, u32, u32)>, // (标题, 剩余ms, 总时长ms)
+    pub chapter_title: Option<(String, u32, u32)>,
     pub click_pending: bool,
     pub auto: Autoplay,
     pub finished: bool,
+    pub transition: Option<(u32, u32)>,
 }
 
 pub struct Autoplay {
@@ -66,6 +67,7 @@ impl GameSession {
             pending_text: None,
             show_choice: None,
             chapter_title: None,
+            transition: None,
             click_pending: false,
             auto: Autoplay::new(),
             finished: false,
@@ -78,6 +80,25 @@ impl GameSession {
             if *remaining == 0 {
                 self.chapter_title = None;
                 self.vm.resume();
+            }
+            return;
+        }
+
+        if let Some((remaining, total)) = self.transition.as_mut() {
+            let left = remaining.saturating_sub(dt_ms);
+            let progress = if *total == 0 {
+                1.0
+            } else {
+                1.0 - (left as f32 / *total as f32)
+            };
+
+            renderer.set_transition_progress(progress);
+
+            if left == 0 {
+                self.transition = None;
+                renderer.end_transition();
+            } else {
+                *remaining = left;
             }
             return;
         }
@@ -177,6 +198,12 @@ impl GameSession {
                         vm.resume();
                         continue;
                     }
+                    Command::Transition { kind, duration_ms } => {
+                        renderer.start_transition(*kind, *duration_ms);
+                        self.transition = Some((*duration_ms, *duration_ms));
+                        vm.resume();
+                        continue;
+                    }
                     _ => {
                         vm.resume();
                         return;
@@ -202,6 +229,9 @@ impl GameSession {
     }
 
     pub fn resume_click(&mut self) {
+        if self.transition.is_some() {
+            return;
+        }
         if self.click_pending {
             self.vm.resume();
             self.click_pending = false;
@@ -218,7 +248,7 @@ impl GameSession {
     }
 
     pub fn auto_tick(&mut self, dt_ms: u32) {
-        if !self.auto.tick(dt_ms) {
+        if !self.auto.tick(dt_ms) && self.transition.is_none() {
             return;
         }
 

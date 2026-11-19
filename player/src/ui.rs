@@ -74,7 +74,6 @@ impl UiState {
             .frame(egui::Frame::default().fill(egui::Color32::TRANSPARENT))
             .show(ctx, |ui| {
                 if let Some((title, remaining, total)) = &session.chapter_title {
-                    // 前 400ms 淡入，后 400ms 淡出
                     let elapsed = (total - remaining) as f32;
                     let alpha = (elapsed / 400.0)
                         .min(1.0)
@@ -85,9 +84,7 @@ impl UiState {
                         ui.heading(
                             egui::RichText::new(title)
                                 .size(48.0)
-                                .color(egui::Color32::from_white_alpha(
-                                    (alpha * 255.0) as u8,
-                                )),
+                                .color(egui::Color32::from_white_alpha((alpha * 255.0) as u8)),
                         );
                     });
                 }
