@@ -173,6 +173,7 @@ impl UiState {
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(160.0);
+                    ui.add_space(120.0);
                     ui.heading(
                         egui::RichText::new("菜单")
                             .size(40.0)
@@ -180,6 +181,7 @@ impl UiState {
                     );
 
                     ui.add_space(48.0);
+                    ui.add_space(38.0);
                     if ui
                         .button(egui::RichText::new("返回游戏").size(26.0))
                         .clicked()
