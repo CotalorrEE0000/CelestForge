@@ -68,6 +68,8 @@ impl GameSession {
         self.show_choice = None;
         self.finished = false;
         self.transition = None;
+        self.page = 0;
+        self.page_count = 0;
         renderer.draw_queue = data.draw_queue;
         renderer.end_transition();
         renderer.ensure_textures_loaded();

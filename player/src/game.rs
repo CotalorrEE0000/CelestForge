@@ -20,6 +20,8 @@ pub struct GameSession {
     pub finished: bool,
     pub transition: Option<(u32, u32)>,
     pub audio: AudioSystem,
+    pub page: usize,
+    pub page_count: usize,
 }
 
 pub struct Autoplay {
@@ -75,6 +77,8 @@ impl GameSession {
             auto: Autoplay::new(),
             finished: false,
             audio: AudioSystem::new(PathBuf::from("assets")),
+            page: 0,
+            page_count: 0,
         })
     }
 
@@ -175,6 +179,8 @@ impl GameSession {
                         self.vm.state.push_history(line);
                         self.pending_text = Some((speaker.clone(), content.clone()));
                         self.click_pending = true;
+                        self.page = 0;
+                        self.page_count = 0;
                         return;
                     }
                     Command::ChapterTitle { title, duration_ms } => {
@@ -252,9 +258,16 @@ impl GameSession {
             return;
         }
         if self.click_pending {
+            if self.page + 1 < self.page_count {
+                self.page += 1;
+                self.auto.reset();
+                return;
+            }
             self.vm.resume();
             self.click_pending = false;
             self.pending_text = None;
+            self.page = 0;
+            self.page_count = 0;
         }
         self.auto.reset();
     }

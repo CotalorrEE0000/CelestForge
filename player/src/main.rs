@@ -151,9 +151,11 @@ impl App {
             self.ui.as_mut().unwrap().mode = UiMode::Title;
         }
 
-        let session = self.session.as_ref().unwrap();
-
-        let action = self.ui.as_mut().unwrap().draw(&self.egui_context, session);
+        let action = self
+            .ui
+            .as_mut()
+            .unwrap()
+            .draw(&self.egui_context, self.session.as_mut().unwrap());
 
         match action {
             UiAction::None => {}

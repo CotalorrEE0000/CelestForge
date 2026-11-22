@@ -2,6 +2,14 @@ use std::path::Path;
 
 use crate::{game::GameSession, save::SaveData};
 
+const DIALOG_W_RATIO: f32 = 0.78;
+const DIALOG_MAX_W: f32 = 960.0;
+const DIALOG_H: f32 = 148.0;
+const DIALOG_PAD: f32 = 18.0;
+const NAME_H: f32 = 26.0;
+const BODY_SIZE: f32 = 18.0;
+const SPEAKER_DEFAULT: egui::Color32 = egui::Color32::LIGHT_BLUE;
+
 pub enum UiAction {
     None,
     StartGame,
@@ -41,6 +49,7 @@ pub struct UiState {
     pub slots_mode: SlotsMode,
     pub backlog_return: UiMode,
     pub pending_overwrite: Option<usize>,
+    pub speaker_colors: std::collections::HashMap<String, egui::Color32>,
 }
 
 pub enum SlotsMode {
@@ -56,10 +65,11 @@ impl UiState {
             slots_mode: SlotsMode::Load,
             backlog_return: UiMode::Normal,
             pending_overwrite: None,
+            speaker_colors: load_speakr_colors(Path::new("assets/speakers.json")),
         }
     }
 
-    pub fn draw(&mut self, ctx: &egui::Context, session: &GameSession) -> UiAction {
+    pub fn draw(&mut self, ctx: &egui::Context, session: &mut GameSession) -> UiAction {
         match self.mode {
             UiMode::Title => self.draw_title(ctx),
             UiMode::Menu => self.draw_menu(ctx),
@@ -70,7 +80,7 @@ impl UiState {
         }
     }
 
-    fn draw_game(&mut self, ctx: &egui::Context, session: &GameSession) -> UiAction {
+    fn draw_game(&mut self, ctx: &egui::Context, session: &mut GameSession) -> UiAction {
         let mut action = UiAction::None;
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(egui::Color32::TRANSPARENT))
@@ -92,36 +102,70 @@ impl UiState {
                 }
 
                 if session.chapter_title.is_none() {
-                    if session.pending_text.is_some() && session.show_choice.is_none() {
-                        let area_resp = egui::Area::new(egui::Id::new("dialog_box"))
-                            .order(egui::Order::Middle)
-                            .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -40.0])
-                            .show(ctx, |ui| {
-                                egui::Frame::none()
-                                    .fill(egui::Color32::from_black_alpha(180))
-                                    .rounding(8.0)
-                                    .inner_margin(egui::Margin::same(16.0))
-                                    .show(ui, |ui| {
-                                        ui.set_min_width(400.0);
-                                        if let Some((speaker, content)) = &session.pending_text {
-                                            if let Some(name) = speaker {
-                                                ui.label(
-                                                    egui::RichText::new(name)
-                                                        .strong()
-                                                        .size(20.0)
-                                                        .color(egui::Color32::LIGHT_BLUE),
-                                                );
-                                            }
+                    let pending = session.pending_text.clone();
+                    let no_choice = session.show_choice.is_none();
+                    if let Some((speaker, content)) = pending {
+                        if no_choice {
+                            let screen_w = ctx.screen_rect().width();
+                            let box_w = (screen_w * DIALOG_W_RATIO).min(DIALOG_MAX_W);
+                            let inner_w = box_w - DIALOG_PAD * 2.0;
+                            let body_h = DIALOG_H - DIALOG_PAD * 2.0 - NAME_H;
+
+                            // resize each frame in real window size
+                            let pages = paginate_text(ctx, &content, inner_w, body_h);
+                            let count = pages.len().max(1);
+                            session.page_count = count;
+                            let idx = session.page.min(count - 1);
+                            let body = pages.get(idx).map(|s| s.as_str()).unwrap_or("");
+
+                            let colors = &self.speaker_colors;
+                            let box_resp = egui::Area::new(egui::Id::new("dialog_box"))
+                                .order(egui::Order::Middle)
+                                .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -56.0])
+                                .show(ctx, |ui| {
+                                    egui::Frame::none()
+                                        .fill(egui::Color32::from_black_alpha(180))
+                                        .rounding(8.0)
+                                        .inner_margin(egui::Margin::same(DIALOG_PAD))
+                                        .show(ui, |ui| {
+                                            ui.set_min_size(egui::vec2(
+                                                inner_w,
+                                                DIALOG_H - DIALOG_PAD * 2.0,
+                                            ));
+                                            ui.set_max_width(inner_w);
+                                            ui.set_max_height(DIALOG_H - DIALOG_PAD * 2.0);
+
+                                            ui.allocate_ui(egui::vec2(inner_w, NAME_H), |ui| {
+                                                if let Some(name) = &speaker {
+                                                    let color = colors
+                                                        .get(name)
+                                                        .copied()
+                                                        .unwrap_or(SPEAKER_DEFAULT);
+                                                    ui.label(
+                                                        egui::RichText::new(name)
+                                                            .strong()
+                                                            .size(20.0)
+                                                            .color(color),
+                                                    );
+                                                }
+                                            });
+
                                             ui.label(
-                                                egui::RichText::new(content)
-                                                    .size(18.0)
+                                                egui::RichText::new(body)
+                                                    .size(BODY_SIZE)
                                                     .color(egui::Color32::WHITE),
                                             );
+
                                             ui.with_layout(
                                                 egui::Layout::right_to_left(egui::Align::RIGHT),
                                                 |ui| {
+                                                    let hint = if count > 1 {
+                                                        format!("{} / {}  ▼", idx + 1, count)
+                                                    } else {
+                                                        "▼".to_string()
+                                                    };
                                                     ui.label(
-                                                        egui::RichText::new("▼ click to continue")
+                                                        egui::RichText::new(hint)
                                                             .small()
                                                             .color(egui::Color32::GRAY),
                                                     );
@@ -135,11 +179,11 @@ impl UiState {
                                                     }
                                                 },
                                             );
-                                        }
-                                    });
-                            });
-                        if area_resp.response.clicked() {
-                            action = UiAction::ClickContinue;
+                                        });
+                                });
+                            if box_resp.response.clicked() {
+                                action = UiAction::ClickContinue;
+                            }
                         }
                     }
 
@@ -530,4 +574,70 @@ impl UiState {
             });
         action
     }
+}
+
+fn paginate_text(ctx: &egui::Context, text: &str, wrap_width: f32, max_h: f32) -> Vec<String> {
+    let galley = ctx.fonts(|f| {
+        f.layout(
+            text.to_owned(),
+            egui::FontId::proportional(BODY_SIZE),
+            egui::Color32::WHITE,
+            wrap_width,
+        )
+    });
+
+    let mut pages = Vec::new();
+    let (mut start, mut acc, mut h) = (0usize, 0usize, 0.0f32);
+    for row in &galley.rows {
+        let rh = row.rect.height();
+        if max_h < rh + h && 0 < acc {
+            pages.push(text.chars().skip(start).take(acc).collect());
+            start += acc;
+            acc = 0;
+            h = 0.0;
+        }
+        h += rh;
+        acc += row.glyphs.len();
+        if row.ends_with_newline {
+            acc += 1;
+        }
+    }
+
+    let tail: String = text.chars().skip(start).collect();
+    if !tail.is_empty() {
+        pages.push(tail);
+    }
+    pages
+}
+
+fn load_speakr_colors(path: &Path) -> std::collections::HashMap<String, egui::Color32> {
+    let mut out = std::collections::HashMap::new();
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return out;
+    };
+    match serde_json::from_str::<std::collections::HashMap<String, String>>(&text) {
+        Ok(map) => {
+            for (name, hex) in map {
+                match parse_hex_color(&hex) {
+                    Some(c) => {
+                        out.insert(name, c);
+                    }
+                    None => eprintln!("[SPEAKER] COLOR FORMAT INCORRECT {name} = {hex}"),
+                }
+            }
+        }
+        Err(e) => eprintln!("[SPEAKER] {path:?} LOAD FAILED: {e}"),
+    }
+    out
+}
+
+fn parse_hex_color(s: &str) -> Option<egui::Color32> {
+    let h = s.trim().trim_start_matches('#');
+    if h.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&h[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&h[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&h[4..6], 16).ok()?;
+    Some(egui::Color32::from_rgb(r, g, b))
 }
