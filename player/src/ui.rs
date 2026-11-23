@@ -1,6 +1,10 @@
 use std::path::Path;
 
-use crate::{game::GameSession, save::SaveData};
+use crate::{
+    chrome::{Chrome, ChromeIntent},
+    game::GameSession,
+    save::SaveData,
+};
 
 const DIALOG_W_RATIO: f32 = 0.78;
 const DIALOG_MAX_W: f32 = 960.0;
@@ -50,6 +54,8 @@ pub struct UiState {
     pub backlog_return: UiMode,
     pub pending_overwrite: Option<usize>,
     pub speaker_colors: std::collections::HashMap<String, egui::Color32>,
+    pub settings_return: UiMode,
+    pub chrome: Chrome,
 }
 
 pub enum SlotsMode {
@@ -66,17 +72,58 @@ impl UiState {
             backlog_return: UiMode::Normal,
             pending_overwrite: None,
             speaker_colors: load_speakr_colors(Path::new("assets/speakers.json")),
+            settings_return: UiMode::Menu,
+            chrome: Chrome::new(),
         }
     }
 
     pub fn draw(&mut self, ctx: &egui::Context, session: &mut GameSession) -> UiAction {
-        match self.mode {
+        let mut action = match self.mode {
             UiMode::Title => self.draw_title(ctx),
             UiMode::Menu => self.draw_menu(ctx),
             UiMode::Normal => self.draw_game(ctx, session),
             UiMode::Slots => self.draw_slots(ctx),
             UiMode::BackLog => self.draw_backlog(ctx, session),
             UiMode::Settings => self.draw_settings(ctx, session),
+        };
+
+        let mode = self.mode;
+        match self.chrome.draw(ctx, mode, session.auto.enabled) {
+            ChromeIntent::None => {}
+            ChromeIntent::ToggleAuto => session.auto.toggle(),
+            other => action = self.apply_chrome_intent(other),
+        }
+
+        action
+    }
+
+    fn apply_chrome_intent(&mut self, intent: ChromeIntent) -> UiAction {
+        match intent {
+            ChromeIntent::None | ChromeIntent::ToggleAuto => UiAction::None,
+            ChromeIntent::Save => {
+                self.slots_mode = SlotsMode::Save;
+                self.slots_return = self.return_target();
+                UiAction::OpenSlots
+            }
+            ChromeIntent::Load => {
+                self.slots_mode = SlotsMode::Load;
+                self.slots_return = self.return_target();
+                UiAction::OpenSlots
+            }
+            ChromeIntent::History => {
+                self.backlog_return = self.return_target();
+                UiAction::OpenBacklog
+            }
+            ChromeIntent::Settings => UiAction::OpenSettings,
+            ChromeIntent::BackToTitle => UiAction::BackToTitle,
+            ChromeIntent::Quit => UiAction::Quit,
+        }
+    }
+
+    fn return_target(&self) -> UiMode {
+        match self.mode {
+            UiMode::Normal => UiMode::Normal,
+            _ => UiMode::Menu,
         }
     }
 

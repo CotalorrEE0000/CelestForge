@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 pub mod audio;
+pub mod chrome;
 pub mod game;
 pub mod input;
 pub mod save;
