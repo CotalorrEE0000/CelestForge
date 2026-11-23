@@ -1,4 +1,7 @@
+use std::path::Path;
+
 use crate::ui::UiMode;
+use crate::ui_skin::Skin;
 
 pub const BAR_H: f32 = 40.0;
 
@@ -11,6 +14,8 @@ const ITEM_GAP: f32 = 8.0;
 const TOPBAR_H: f32 = 44.0;
 const HOT_ZONE_H: f32 = 20.0;
 const HIDE_DELAY: f64 = 0.28;
+
+const SKIN_PATH: &str = "asset/ui/skin.json";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ChromeIntent {
@@ -27,6 +32,7 @@ pub enum ChromeIntent {
 pub struct Chrome {
     topbar_visible: bool,
     hide_since: Option<f64>,
+    skin: Skin,
 }
 
 impl Default for Chrome {
@@ -40,6 +46,7 @@ impl Chrome {
         Self {
             topbar_visible: false,
             hide_since: None,
+            skin: Skin::default(),
         }
     }
 
@@ -77,6 +84,9 @@ impl Chrome {
         let pointer_y = ctx.input(|i| i.pointer.hover_pos()).map(|p| p.y);
         self.tick(now, pointer_y);
 
+        self.skin.ensure_loaded(ctx, Path::new(SKIN_PATH));
+        let skin = &self.skin;
+
         let mut intent = ChromeIntent::None;
         let screen_w = ctx.screen_rect().width();
 
@@ -89,23 +99,26 @@ impl Chrome {
                     .fill(egui::Color32::from_black_alpha(BAR_BG_ALPHA))
                     .show(ui, |ui| {
                         ui.set_min_size(egui::vec2(screen_w, BAR_H));
+                        if let Some(bar) = skin.bar() {
+                            bar.paint(ui.painter(), ui.max_rect(), egui::Color32::WHITE);
+                        }
                         ui.spacing_mut().item_spacing.x = ITEM_GAP;
                         ui.horizontal_centered(|ui| {
                             let total = ITEM_W * 5.0 + ITEM_GAP * 4.0 + BAR_PAD_R;
                             ui.add_space((screen_w - total).max(0.0));
-                            if bar_item(ui, "存档", false).clicked() {
+                            if bar_item(ui, skin, "存档", false).clicked() {
                                 intent = ChromeIntent::Save;
                             }
-                            if bar_item(ui, "读档", false).clicked() {
+                            if bar_item(ui, skin, "读档", false).clicked() {
                                 intent = ChromeIntent::Load;
                             }
-                            if bar_item(ui, "历史", false).clicked() {
+                            if bar_item(ui, skin, "历史", false).clicked() {
                                 intent = ChromeIntent::History;
                             }
-                            if bar_item(ui, "自动", auto_enabled).clicked() {
+                            if bar_item(ui, skin, "自动", auto_enabled).clicked() {
                                 intent = ChromeIntent::ToggleAuto;
                             }
-                            if bar_item(ui, "设置", false).clicked() {
+                            if bar_item(ui, skin, "设置", false).clicked() {
                                 intent = ChromeIntent::Settings;
                             }
                         });
@@ -149,10 +162,10 @@ impl Chrome {
                                     .layout(egui::Layout::right_to_left(egui::Align::Center)),
                                 |ui| {
                                     ui.add_space(12.0);
-                                    if bar_item(ui, "退出", false).clicked() {
+                                    if bar_item(ui, skin, "退出", false).clicked() {
                                         intent = ChromeIntent::Quit;
                                     }
-                                    if bar_item(ui, "返回标题", false).clicked() {
+                                    if bar_item(ui, skin, "返回标题", false).clicked() {
                                         intent = ChromeIntent::BackToTitle;
                                     }
                                 },
@@ -169,8 +182,28 @@ pub fn chrome_visible(mode: UiMode) -> bool {
     matches!(mode, UiMode::Normal)
 }
 
-fn bar_item(ui: &mut egui::Ui, label: &str, active: bool) -> egui::Response {
+fn bar_item(ui: &mut egui::Ui, skin: &Skin, label: &str, active: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ITEM_W, ITEM_H), egui::Sense::click());
+    let lit = active || resp.hovered();
+    match skin.button() {
+        Some(nine) => {
+            let tint = if lit {
+                egui::Color32::WHITE
+            } else {
+                egui::Color32::from_gray(120)
+            };
+            nine.paint(ui.painter(), rect, tint);
+        }
+        None => {
+            if lit {
+                ui.painter().rect_filled(
+                    rect,
+                    egui::Rounding::same(6.0),
+                    egui::Color32::from_white_alpha(if active { 46 } else { 24 }),
+                );
+            }
+        }
+    }
     if active || resp.hovered() {
         ui.painter().rect_filled(
             rect,

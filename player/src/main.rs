@@ -6,6 +6,7 @@ pub mod game;
 pub mod input;
 pub mod save;
 pub mod ui;
+pub mod ui_skin;
 
 use celest_renderer::Renderer;
 use egui_wgpu::Renderer as EguiRenderer;
