@@ -356,7 +356,7 @@ impl UiState {
                         .color(egui::Color32::WHITE),
                     );
                     ui.add_space(32.0);
-                    let blocked = self.pending_overwrite.is_none();
+                    let blocked = self.pending_overwrite.is_some();
                     ui.add_enabled_ui(!blocked, |ui| {
                         for slot in 0..6 {
                             let path = if slot == 0 {
