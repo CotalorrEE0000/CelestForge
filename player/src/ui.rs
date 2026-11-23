@@ -443,12 +443,14 @@ impl UiState {
                             }
                         }
                     });
+
                     ui.add_space(24.0);
-                    let back = if matches!(self.slots_return, UiMode::Menu) {
-                        UiAction::BackToGame
-                    } else {
-                        UiAction::BackToTitle
+                    let back = match self.slots_return {
+                        UiMode::Normal => UiAction::BackToGame,
+                        UiMode::Menu => UiAction::BackToMenu,
+                        _ => UiAction::BackToTitle,
                     };
+
                     if ui.button(egui::RichText::new("Back").size(22.0)).clicked() {
                         action = back;
                     }

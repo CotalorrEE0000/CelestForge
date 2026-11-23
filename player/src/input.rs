@@ -69,7 +69,7 @@ pub fn handle(
                 UiMode::Normal => UiMode::Menu,
                 UiMode::Menu => UiMode::Normal,
                 UiMode::BackLog => UiMode::Normal,
-                UiMode::Settings => UiMode::Menu,
+                UiMode::Settings => ui.settings_return,
                 _ => return,
             };
         }

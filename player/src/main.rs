@@ -202,12 +202,8 @@ impl App {
                     .as_mut()
                     .unwrap()
                     .save_to_slot(slot, self.renderer.as_ref().unwrap());
-                let back_to_menu = matches!(self.ui.as_ref().unwrap().slots_return, UiMode::Menu);
-                self.ui.as_mut().unwrap().mode = if back_to_menu {
-                    UiMode::Menu
-                } else {
-                    UiMode::Title
-                };
+                let back = self.ui.as_ref().unwrap().slots_return;
+                self.ui.as_mut().unwrap().mode = back;
             }
             UiAction::SetBgmVolume(v) => {
                 self.session.as_mut().unwrap().audio.set_bgm_volume(v);
@@ -226,6 +222,8 @@ impl App {
                 self.ui.as_mut().unwrap().mode = UiMode::BackLog;
             }
             UiAction::OpenSettings => {
+                let from = self.ui.as_ref().unwrap().mode;
+                self.ui.as_mut().unwrap().settings_return = from;
                 self.ui.as_mut().unwrap().mode = UiMode::Settings;
             }
             UiAction::ConfirmOverwrite(slot) => {
