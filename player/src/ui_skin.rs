@@ -20,8 +20,8 @@ pub struct SkinFile {
 
 #[derive(Default)]
 pub struct Skin {
-    button: Option<NineSlide>,
-    bar: Option<NineSlide>,
+    button: Option<NineSlice>,
+    bar: Option<NineSlice>,
     tried: bool,
 }
 
@@ -29,17 +29,26 @@ fn default_corner() -> f32 {
     DEFAULT_CORNER
 }
 
-pub struct NineSlide {
+pub struct NineSlice {
     tex: TextureHandle,
     src: Rect,
     corner: f32,
 }
-
 pub fn nine_slice(mesh: &mut Mesh, dst: Rect, src: Rect, corner: f32, tint: Color32) {
-    let d = [dst.min.x, dst.min.x + corner, dst.max.x - corner, dst.max.x];
-    let e = [dst.min.y, dst.min.y + corner, dst.max.y - corner, dst.max.y];
-    let s = [src.min.x, src.min.x + corner, src.max.x - corner, src.max.x];
-    let t = [src.min.y, src.min.y + corner, src.max.y - corner, src.max.x];
+    let size = src.size();
+    let norm = |p: Pos2| {
+        Pos2::new(
+            (p.x - src.min.x) / size.x.max(1.0),
+            (p.y - src.min.y) / size.y.max(1.0),
+        )
+    };
+
+    let cx = corner.min(dst.width() * 0.5).min(src.width() * 0.5);
+    let cy = corner.min(dst.height() * 0.5).min(src.height() * 0.5);
+    let d = [dst.min.x, dst.min.x + cx, dst.max.x - cx, dst.max.x];
+    let e = [dst.min.y, dst.min.y + cy, dst.max.y - cy, dst.max.y];
+    let s = [src.min.x, src.min.x + cx, src.max.x - cx, src.max.x];
+    let t = [src.min.y, src.min.y + cy, src.max.y - cy, src.max.y];
 
     for row in 0..3 {
         for col in 0..3 {
@@ -56,17 +65,17 @@ pub fn nine_slice(mesh: &mut Mesh, dst: Rect, src: Rect, corner: f32, tint: Colo
             ] {
                 mesh.vertices.push(egui::epaint::Vertex {
                     pos,
-                    uv,
+                    uv: norm(uv),
                     color: tint,
                 });
             }
             mesh.indices
-                .extend_from_slice(&[base, base + 1, base + 2, base + 3]);
+                .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
     }
 }
 
-impl NineSlide {
+impl NineSlice {
     pub fn load(ctx: &egui::Context, key: &str, cfg: &NineCfg) -> Option<Self> {
         let img = image::open(&cfg.image).ok()?.to_rgba8();
         let (w, h) = img.dimensions();
@@ -106,11 +115,11 @@ impl Skin {
         skin.button = file
             .button
             .as_ref()
-            .and_then(|c| NineSlide::load(ctx, "cf_skin_button", c));
+            .and_then(|c| NineSlice::load(ctx, "cf_skin_button", c));
         skin.bar = file
             .bar
             .as_ref()
-            .and_then(|c| NineSlide::load(ctx, "cf_skin_bar", c));
+            .and_then(|c| NineSlice::load(ctx, "cf_skin_bar", c));
         skin
     }
 
@@ -120,11 +129,11 @@ impl Skin {
         }
     }
 
-    pub fn button(&self) -> Option<&NineSlide> {
+    pub fn button(&self) -> Option<&NineSlice> {
         self.button.as_ref()
     }
 
-    pub fn bar(&self) -> Option<&NineSlide> {
+    pub fn bar(&self) -> Option<&NineSlice> {
         self.bar.as_ref()
     }
 

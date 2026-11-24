@@ -15,7 +15,7 @@ const TOPBAR_H: f32 = 44.0;
 const HOT_ZONE_H: f32 = 20.0;
 const HIDE_DELAY: f64 = 0.28;
 
-const SKIN_PATH: &str = "asset/ui/skin.json";
+const SKIN_PATH: &str = "assets/ui/skin.json";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ChromeIntent {
@@ -190,7 +190,7 @@ fn bar_item(ui: &mut egui::Ui, skin: &Skin, label: &str, active: bool) -> egui::
             let tint = if lit {
                 egui::Color32::WHITE
             } else {
-                egui::Color32::from_gray(120)
+                egui::Color32::from_gray(255)
             };
             nine.paint(ui.painter(), rect, tint);
         }
