@@ -47,6 +47,11 @@ pub fn handle(
     renderer: &mut Renderer,
 ) {
     let action = map_key(event);
+
+    if ui.pending_quit {
+        return;
+    }
+
     match action {
         InputAction::None => {}
         InputAction::Advance => {

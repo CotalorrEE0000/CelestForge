@@ -34,6 +34,8 @@ pub enum UiAction {
     OpenBacklog,
     OpenSettings,
     CloseBacklog,
+    ConfirmQuit,
+    CancelQuit,
     Quit,
 }
 
@@ -56,6 +58,7 @@ pub struct UiState {
     pub speaker_colors: std::collections::HashMap<String, egui::Color32>,
     pub settings_return: UiMode,
     pub chrome: Chrome,
+    pub pending_quit: bool,
 }
 
 pub enum SlotsMode {
@@ -74,6 +77,7 @@ impl UiState {
             speaker_colors: load_speakr_colors(Path::new("assets/speakers.json")),
             settings_return: UiMode::Menu,
             chrome: Chrome::new(),
+            pending_quit: false,
         }
     }
 
@@ -87,11 +91,24 @@ impl UiState {
             UiMode::Settings => self.draw_settings(ctx, session),
         };
 
-        let mode = self.mode;
-        match self.chrome.draw(ctx, mode, session.auto.enabled) {
-            ChromeIntent::None => {}
-            ChromeIntent::ToggleAuto => session.auto.toggle(),
-            other => action = self.apply_chrome_intent(other),
+        if !self.pending_quit {
+            let mode = self.mode;
+            match self.chrome.draw(ctx, mode, session.auto.enabled) {
+                ChromeIntent::None => {}
+                ChromeIntent::ToggleAuto => session.auto.toggle(),
+                other => action = self.apply_chrome_intent(other),
+            }
+        }
+
+        if self.pending_quit {
+            match self.draw_quit_confirm(ctx) {
+                UiAction::None => {
+                    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        action = UiAction::CancelQuit;
+                    }
+                }
+                other => action = other,
+            }
         }
 
         action
@@ -620,6 +637,56 @@ impl UiState {
                         action = UiAction::BackToMenu;
                     }
                 });
+            });
+        action
+    }
+
+    fn draw_quit_confirm(&mut self, ctx: &egui::Context) -> UiAction {
+        let mut action = UiAction::None;
+        egui::Area::new(egui::Id::new("cf_quit_confirm"))
+            .order(egui::Order::Tooltip)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                egui::Frame::none()
+                    .fill(egui::Color32::from_black_alpha(236))
+                    .rounding(10.0)
+                    .inner_margin(egui::Margin::same(20.0))
+                    .show(ui, |ui| {
+                        ui.set_min_size(egui::vec2(320.0, 0.0));
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                egui::RichText::new("确定要退出 Celest Forge 吗？")
+                                    .size(20.0)
+                                    .color(egui::Color32::WHITE),
+                            );
+                            ui.add_space(18.0);
+                            ui.horizontal(|ui| {
+                                let btn_w: f32 = 96.0;
+                                let gap: f32 = 16.0;
+                                let pad = ((320.0 - btn_w * 2.0 - gap) * 0.5).max(0.0);
+                                ui.add_space(pad);
+                                if ui
+                                    .add_sized(
+                                        [btn_w, 32.0],
+                                        egui::Button::new(egui::RichText::new("退出").size(18.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    action = UiAction::ConfirmQuit;
+                                }
+                                ui.add_space(gap);
+                                if ui
+                                    .add_sized(
+                                        [btn_w, 32.0],
+                                        egui::Button::new(egui::RichText::new("取消").size(18.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    action = UiAction::CancelQuit;
+                                }
+                            });
+                        });
+                    });
             });
         action
     }

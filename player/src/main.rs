@@ -240,8 +240,15 @@ impl App {
             UiAction::SetAutoplay(ms) => {
                 self.session.as_mut().unwrap().auto.interval_ms = ms;
             }
-            UiAction::Quit => {
+            UiAction::ConfirmQuit => {
+                self.ui.as_mut().unwrap().pending_quit = false;
                 self.exit_requested = true;
+            }
+            UiAction::CancelQuit => {
+                self.ui.as_mut().unwrap().pending_quit = false;
+            }
+            UiAction::Quit => {
+                self.ui.as_mut().unwrap().pending_quit = true;
             }
         }
 
@@ -345,8 +352,12 @@ impl ApplicationHandler for App {
         }
         match event {
             WindowEvent::CloseRequested => {
-                println!("Celest Forge Closed!");
-                event_loop.exit();
+                if let Some(ui) = self.ui.as_mut() {
+                    ui.pending_quit = true;
+                }
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
             }
             WindowEvent::Resized(size) => {
                 self.resize(size);
